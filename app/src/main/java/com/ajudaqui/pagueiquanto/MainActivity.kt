@@ -2,8 +2,9 @@ package com.ajudaqui.pagueiquanto
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.compose.material3.MaterialTheme
 import androidx.activity.compose.setContent
-import androidx.activity.viewmodels.viewModels
+import androidx.activity.viewModels
 import androidx.room.Room
 import com.ajudaqui.pagueiquanto.data.AppDatabase
 import com.ajudaqui.pagueiquanto.repository.ShoppingRepository
@@ -16,7 +17,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         // --- INJEÇÃO DE DEPENDÊNCIA MANUAL ---
- asda
+
 
         // 1. Instância do Banco de Dados
         val db = Room.databaseBuilder(

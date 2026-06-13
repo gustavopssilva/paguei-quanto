@@ -1,5 +1,6 @@
 package com.ajudaqui.pagueiquanto.ui
 
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -151,6 +152,7 @@ fun ChecklistItem(
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3Api::class)
 fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
     val items by viewModel.items.collectAsState()
     val total = items.sumOf { 

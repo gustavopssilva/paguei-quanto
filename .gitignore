@@ -1,15 +1,25 @@
-# v0 sandbox internal files
-__v0_runtime_loader.js
-__v0_devtools.tsx
-__v0_jsx-dev-runtime.ts
-.snowflake/
-.v0-trash/
-.vercel/
+# Android/Gradle
+.gradle/
+build/
+local.properties
+*.apk
+*.aar
+*.keystore
+bin/
 
-# Environment variables
-.env*.local
+# Kotlin/Java
+*.class
+.kotlin/
 
-# Common ignores
-node_modules
-.next/
+# IDE/Editor
+.idea/
+*.iml
+.vscode/
+*.swp
+*~
 .DS_Store
+
+# Web/Other (Keep previous if relevant)
+node_modules/
+.vercel/
+.env*.local
