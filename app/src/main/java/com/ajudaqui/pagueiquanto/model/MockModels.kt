@@ -48,7 +48,9 @@ data class MockAccount(
     val id: String,
     val name: String,
     val icon: String,
-    val products: List<MockProduct>
+    val products: List<MockProduct>,
+    val nextPurchasePrediction: String? = null,
+    val predictionProgress: Float = 0f
 ) {
     val lastPurchaseDate: String?
         get() = products.flatMap { it.history }.maxByOrNull { it.dateMillis }?.date
