@@ -415,7 +415,47 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
             }
         }
     }
-    if (showAddItemDialog) { /* AlertDialog skip for brevity */ }
+    if (showAddItemDialog) {
+        var name by remember { mutableStateOf("") }
+        var unit by remember { mutableStateOf("un") }
+        AlertDialog(
+            onDismissRequest = { showAddItemDialog = false },
+            title = { Text("Novo Item") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("Nome do Item") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = unit,
+                        onValueChange = { unit = it },
+                        label = { Text("Unidade de Medida (ex: un, kg, L)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank()) {
+                            viewModel.addNewItem(name, unit)
+                            showAddItemDialog = false
+                        }
+                    }
+                ) {
+                    Text("Adicionar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddItemDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable

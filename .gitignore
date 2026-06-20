@@ -1,5 +1,6 @@
 # Android/Gradle
 .gradle/
+.agents/
 build/
 local.properties
 *.apk
