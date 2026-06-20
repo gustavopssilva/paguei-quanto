@@ -24,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "shopping-db").build()
+        val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "pagueiquanto-db").build()
         val repository = ShoppingRepository(db.shoppingDao())
         val factory = ShoppingViewModelFactory(repository)
         val viewModel: ShoppingViewModel by viewModels { factory }
@@ -95,7 +95,22 @@ class MainActivity : ComponentActivity() {
                             showPurchaseDetail != null -> {
                                 val (date, nick) = showPurchaseDetail!!
                                 val items = viewModel.getPurchaseItems(date, nick)
-                                PurchaseDetailScreen(date = date, nickname = nick, items = items, onBack = { showPurchaseDetail = null })
+                                PurchaseDetailScreen(
+                                    date = date, 
+                                    nickname = nick, 
+                                    items = items, 
+                                    onBack = { showPurchaseDetail = null },
+                                    onDeletePurchase = {
+                                        viewModel.deletePurchaseByDate(date, nick)
+                                        showPurchaseDetail = null
+                                    },
+                                    onDeleteItem = { record ->
+                                        viewModel.deletePriceRecord(record.id)
+                                    },
+                                    onUpdateItem = { record, price, qty ->
+                                        viewModel.updatePriceRecord(record.id, price, qty)
+                                    }
+                                )
                             }
                             else -> {
                                 when (currentTab) {
@@ -111,7 +126,11 @@ class MainActivity : ComponentActivity() {
                                             CategoryHistoryScreen(
                                                 account = selectedAccount,
                                                 onNewPurchase = { showNewPurchase = true },
-                                                onOpenPurchase = { date, nick -> showPurchaseDetail = date to nick }
+                                                onOpenPurchase = { date, nick -> showPurchaseDetail = date to nick },
+                                                onDeleteAccount = {
+                                                    viewModel.deleteAccount(selectedAccount.id)
+                                                    viewModel.selectAccount(null)
+                                                }
                                             )
                                         } else {
                                             AllListsScreen(accounts = accounts, onOpenAccount = { id -> viewModel.selectAccount(id) })

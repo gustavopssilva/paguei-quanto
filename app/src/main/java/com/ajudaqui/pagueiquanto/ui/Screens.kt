@@ -5,6 +5,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -29,9 +31,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ajudaqui.pagueiquanto.model.MockAccount
-import com.ajudaqui.pagueiquanto.model.MockProduct
-import com.ajudaqui.pagueiquanto.model.MockPriceRecord
+import com.ajudaqui.pagueiquanto.model.AccountState
+import com.ajudaqui.pagueiquanto.model.ProductState
+import com.ajudaqui.pagueiquanto.model.PriceRecordState
 import com.ajudaqui.pagueiquanto.ui.theme.Slate100
 import com.ajudaqui.pagueiquanto.ui.theme.Slate500
 import com.ajudaqui.pagueiquanto.ui.theme.Slate900
@@ -114,8 +116,8 @@ fun PriceVariationBadge(delta: Double?, size: String = "md") {
 
 @Composable
 fun HomeScreen(
-    accounts: List<MockAccount>,
-    latestPurchase: Pair<MockAccount, String>?,
+    accounts: List<AccountState>,
+    latestPurchase: Pair<AccountState, String>?,
     onOpenAccount: (String) -> Unit,
     onOpenPurchase: (String, String?) -> Unit,
     onAddAccount: (String, String) -> Unit
@@ -156,7 +158,6 @@ fun HomeScreen(
             }
         }
     }
-
     if (showAddDialog) {
         var name by remember { mutableStateOf("") }
         AlertDialog(onDismissRequest = { showAddDialog = false }, title = { Text("Nova Lista") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome da Lista") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.isNotBlank()) { onAddAccount(name, "cart"); showAddDialog = false } }) { Text("Criar") } })
@@ -164,7 +165,7 @@ fun HomeScreen(
 }
 
 @Composable
-fun HeroCard(account: MockAccount, date: String, onOpen: () -> Unit) {
+fun HeroCard(account: AccountState, date: String, onOpen: () -> Unit) {
     Card(modifier = Modifier.padding(16.dp).fillMaxWidth(), shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)) {
         Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
@@ -182,7 +183,7 @@ fun HeroCard(account: MockAccount, date: String, onOpen: () -> Unit) {
 }
 
 @Composable
-fun ReminderListCard(account: MockAccount, onClick: () -> Unit) {
+fun ReminderListCard(account: AccountState, onClick: () -> Unit) {
     Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Slate100)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -208,7 +209,7 @@ fun ReminderListCard(account: MockAccount, onClick: () -> Unit) {
 }
 
 @Composable
-fun LatestItemRow(product: MockProduct) {
+fun LatestItemRow(product: ProductState) {
     val last = product.lastEntry
     Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         val emoji = when {
@@ -227,8 +228,9 @@ fun LatestItemRow(product: MockProduct) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CategoryHistoryScreen(account: MockAccount, onNewPurchase: () -> Unit, onOpenPurchase: (String, String?) -> Unit) {
+fun CategoryHistoryScreen(account: AccountState, onNewPurchase: () -> Unit, onOpenPurchase: (String, String?) -> Unit, onDeleteAccount: (() -> Unit)? = null) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = account.name, subtitle = "Histórico de compras") }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // Banner de Previsão na Categoria
@@ -272,12 +274,55 @@ fun CategoryHistoryScreen(account: MockAccount, onNewPurchase: () -> Unit, onOpe
                     PurchaseHistoryItem(date = first.date, nickname = first.nickname, total = records.sumOf { it.first.unitPrice * it.first.quantity }, qty = records.size, onClick = { onOpenPurchase(first.date, first.nickname) })
                 }
             }
+            if (onDeleteAccount != null) {
+                val context = androidx.compose.ui.platform.LocalContext.current
+                var showConfirmDelete by remember { mutableStateOf(false) }
+                
+                Box(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .combinedClickable(
+                            onClick = { android.widget.Toast.makeText(context, "Pressione e segure para excluir a categoria", android.widget.Toast.LENGTH_SHORT).show() },
+                            onLongClick = { showConfirmDelete = true }
+                        )
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Excluir Categoria (Segure para excluir)", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                }
+
+                if (showConfirmDelete) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirmDelete = false },
+                        title = { Text("Excluir Categoria?") },
+                        text = { Text("Isso excluirá permanentemente esta categoria e todos os seus itens e compras vinculados.") },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showConfirmDelete = false
+                                    onDeleteAccount()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Excluir")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirmDelete = false }) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }
 
 @Composable
-fun CategoryProductsScreen(account: MockAccount, onOpenProduct: (String) -> Unit) {
+fun CategoryProductsScreen(account: AccountState, onOpenProduct: (String) -> Unit) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = account.name, subtitle = "Itens cadastrados") }) { padding ->
         if (account.products.isEmpty()) EmptyProductsPlaceholder()
         else LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -287,7 +332,7 @@ fun CategoryProductsScreen(account: MockAccount, onOpenProduct: (String) -> Unit
 }
 
 @Composable
-fun AllListsScreen(accounts: List<MockAccount>, onOpenAccount: (String) -> Unit) {
+fun AllListsScreen(accounts: List<AccountState>, onOpenAccount: (String) -> Unit) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Minhas Listas", subtitle = "Categorias de compra") }) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(accounts) { account -> ReminderListCard(account = account, onClick = { onOpenAccount(account.id) }) }
@@ -296,7 +341,7 @@ fun AllListsScreen(accounts: List<MockAccount>, onOpenAccount: (String) -> Unit)
 }
 
 @Composable
-fun GlobalItemsScreen(items: List<MockProduct>) {
+fun GlobalItemsScreen(items: List<ProductState>) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Últimos Itens", subtitle = "Comprados recentemente") }) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             items(items) { product -> LatestItemRow(product = product) }
@@ -305,7 +350,7 @@ fun GlobalItemsScreen(items: List<MockProduct>) {
 }
 
 @Composable
-fun GlobalHistoryScreen(history: List<Triple<MockAccount, String, Double>>, onOpenPurchase: (String, String?) -> Unit) {
+fun GlobalHistoryScreen(history: List<Triple<AccountState, String, Double>>, onOpenPurchase: (String, String?) -> Unit) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Histórico Global", subtitle = "Todas as compras") }) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(history) { (acc, date, total) -> PurchaseHistoryItem(date = date, nickname = acc.name, total = total, qty = 0, onClick = { onOpenPurchase(date, null) }) }
@@ -313,16 +358,54 @@ fun GlobalHistoryScreen(history: List<Triple<MockAccount, String, Double>>, onOp
     }
 }
 
+fun exportDatabase(context: android.content.Context) {
+    try {
+        val dbNames = listOf("pagueiquanto-db", "pagueiquanto-db-wal", "pagueiquanto-db-shm")
+        val targetDir = context.getExternalFilesDir(null) ?: return
+        var exportedAny = false
+        dbNames.forEach { name ->
+            val dbFile = context.getDatabasePath(name)
+            if (dbFile.exists()) {
+                val targetFile = java.io.File(targetDir, "$name-export")
+                dbFile.inputStream().use { input ->
+                    targetFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                exportedAny = true
+            }
+        }
+        if (exportedAny) {
+            android.widget.Toast.makeText(context, "Banco exportado para:\n${targetDir.absolutePath}/pagueiquanto-db-export", android.widget.Toast.LENGTH_LONG).show()
+        } else {
+            android.widget.Toast.makeText(context, "Banco de dados vazio ou inexistente!", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "Erro ao exportar: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 fun ProfileScreen() {
+    val context = androidx.compose.ui.platform.LocalContext.current
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Meu Perfil") }) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+        Column(modifier = Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Slate100)) {
                 Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) { Text("U", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp) }
                     Spacer(Modifier.width(16.dp))
                     Column { Text("Usuário de Teste", fontWeight = FontWeight.Bold, fontSize = 18.sp); Text("usuario@email.com", color = Slate500) }
                 }
+            }
+            
+            Button(
+                onClick = { exportDatabase(context) },
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Icon(Icons.Default.Share, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Exportar Banco de Dados (SQLite)", fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -343,20 +426,45 @@ fun PurchaseHistoryItem(date: String, nickname: String?, total: Double, qty: Int
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PurchaseDetailScreen(date: String, nickname: String?, items: List<Pair<MockProduct, MockPriceRecord>>, onBack: () -> Unit) {
+fun PurchaseDetailScreen(
+    date: String, 
+    nickname: String?, 
+    items: List<Pair<ProductState, PriceRecordState>>, 
+    onBack: () -> Unit, 
+    onDeletePurchase: (() -> Unit)? = null, 
+    onDeleteItem: ((PriceRecordState) -> Unit)? = null,
+    onUpdateItem: ((PriceRecordState, Double, Double) -> Unit)? = null
+) {
+    var editingRecord by remember { mutableStateOf<Pair<ProductState, PriceRecordState>?>(null) }
+    var activeItemActions by remember { mutableStateOf<Pair<ProductState, PriceRecordState>?>(null) }
+    val visibleItems = items.filter { it.second.unitPrice > 0.0 }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
     Scaffold(topBar = { PagueiQuantoTopBar(title = nickname ?: formatDate(date), subtitle = formatDate(date), onBack = onBack) }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            val total = items.sumOf { it.second.unitPrice * it.second.quantity }
+            val total = visibleItems.sumOf { it.second.unitPrice * it.second.quantity }
             Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Total da Compra", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     Text("R$ ${String.format("%.2f", total).replace(".", ",")}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
                 }
             }
-            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(items) { (product, record) ->
-                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            LazyColumn(modifier = Modifier.fillMaxSize().weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(visibleItems) { (product, record) ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .combinedClickable(
+                                onClick = { android.widget.Toast.makeText(context, "Segure pressionado para editar ou deletar este item", android.widget.Toast.LENGTH_SHORT).show() },
+                                onLongClick = { activeItemActions = product to record }
+                            ), 
+                        colors = CardDefaults.cardColors(containerColor = Color.White), 
+                        shape = RoundedCornerShape(16.dp), 
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                             Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Bold); Text("${record.quantity}${product.unit}", style = MaterialTheme.typography.bodySmall, color = Slate500) }
                             Text("R$ ${String.format("%.2f", record.unitPrice).replace(".", ",")}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
@@ -364,12 +472,138 @@ fun PurchaseDetailScreen(date: String, nickname: String?, items: List<Pair<MockP
                     }
                 }
             }
+            if (onDeletePurchase != null) {
+                var showConfirmDelete by remember { mutableStateOf(false) }
+
+                Box(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .combinedClickable(
+                            onClick = { android.widget.Toast.makeText(context, "Pressione e segure para excluir a compra", android.widget.Toast.LENGTH_SHORT).show() },
+                            onLongClick = { showConfirmDelete = true }
+                        )
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Excluir Compra (Segure para excluir)", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                }
+
+                if (showConfirmDelete) {
+                    AlertDialog(
+                        onDismissRequest = { showConfirmDelete = false },
+                        title = { Text("Excluir Compra?") },
+                        text = { Text("Isso excluirá permanentemente esta compra do seu histórico.") },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showConfirmDelete = false
+                                    onDeletePurchase()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Excluir")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showConfirmDelete = false }) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
+                }
+            }
         }
+    }
+
+    if (activeItemActions != null) {
+        val (product, record) = activeItemActions!!
+        AlertDialog(
+            onDismissRequest = { activeItemActions = null },
+            title = { Text(product.name) },
+            text = { Text("Escolha uma opção para este item:") },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            editingRecord = product to record
+                            activeItemActions = null
+                        }
+                    ) {
+                        Text("Editar")
+                    }
+                    Button(
+                        onClick = {
+                            if (onDeleteItem != null) {
+                                onDeleteItem(record)
+                            }
+                            activeItemActions = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Deletar")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { activeItemActions = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (editingRecord != null) {
+        val (product, record) = editingRecord!!
+        var priceInput by remember { mutableStateOf(record.unitPrice.toString()) }
+        var qtyInput by remember { mutableStateOf(record.quantity.toString()) }
+        AlertDialog(
+            onDismissRequest = { editingRecord = null },
+            title = { Text("Editar Item: ${product.name}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        value = priceInput,
+                        onValueChange = { priceInput = it },
+                        label = { Text("Valor Unitário") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+                    OutlinedTextField(
+                        value = qtyInput,
+                        onValueChange = { qtyInput = it },
+                        label = { Text("Quantidade") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val p = priceInput.replace(",", ".").toDoubleOrNull() ?: 0.0
+                        val q = qtyInput.replace(",", ".").toDoubleOrNull() ?: 1.0
+                        if (onUpdateItem != null) {
+                            onUpdateItem(record, p, q)
+                        }
+                        editingRecord = null
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingRecord = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
 @Composable
-fun ProductHistoryScreen(product: MockProduct, onBack: () -> Unit) {
+fun ProductHistoryScreen(product: ProductState, onBack: () -> Unit) {
     Scaffold(topBar = { PagueiQuantoTopBar(title = product.name, subtitle = "Histórico de Preços", onBack = onBack) }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
@@ -459,7 +693,7 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
 }
 
 @Composable
-fun ProductCard(product: MockProduct, onClick: () -> Unit) {
+fun ProductCard(product: ProductState, onClick: () -> Unit) {
     val lastEntry = product.lastEntry
     Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {

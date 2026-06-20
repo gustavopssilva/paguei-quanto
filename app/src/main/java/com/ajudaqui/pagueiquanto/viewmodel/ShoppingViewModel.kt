@@ -3,9 +3,9 @@ package com.ajudaqui.pagueiquanto.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.ajudaqui.pagueiquanto.model.MockAccount
-import com.ajudaqui.pagueiquanto.model.MockPriceRecord
-import com.ajudaqui.pagueiquanto.model.MockProduct
+import com.ajudaqui.pagueiquanto.model.AccountState
+import com.ajudaqui.pagueiquanto.model.PriceRecordState
+import com.ajudaqui.pagueiquanto.model.ProductState
 import com.ajudaqui.pagueiquanto.repository.ShoppingRepository
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -26,7 +26,7 @@ data class PurchaseItemState(
 class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel() {
     
     // O ViewModel agora apenas observa os dados que vêm do Repository
-    val accounts: StateFlow<List<MockAccount>> = repository.accounts
+    val accounts: StateFlow<List<AccountState>> = repository.accounts
 
     private val _selectedAccountId = MutableStateFlow<String?>(null)
     val selectedAccountId = _selectedAccountId.asStateFlow()
@@ -52,7 +52,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
         }
     }
 
-    private fun loadItemsForAccount(account: MockAccount?) {
+    private fun loadItemsForAccount(account: AccountState?) {
         if (account == null) {
             _items.value = emptyList()
             return
@@ -79,6 +79,26 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
             repository.savePurchaseTransaction(accountId, store, nickname, _items.value)
             selectAccount(accountId) // Refresh nos itens após salvar
         }
+    }
+
+    fun deleteAccount(accountId: String) {
+        viewModelScope.launch { repository.deleteAccount(accountId) }
+    }
+
+    fun deleteProduct(productId: String) {
+        viewModelScope.launch { repository.deleteProduct(productId) }
+    }
+
+    fun deletePriceRecord(recordId: String) {
+        viewModelScope.launch { repository.deletePriceRecord(recordId) }
+    }
+
+    fun deletePurchaseByDate(date: String, nickname: String?) {
+        viewModelScope.launch { repository.deletePurchaseByDate(date, nickname) }
+    }
+
+    fun updatePriceRecord(recordId: String, unitPrice: Double, quantity: Double) {
+        viewModelScope.launch { repository.updatePriceRecord(recordId, unitPrice, quantity) }
     }
 
     // --- LÓGICA DE ESTADO TEMPORÁRIO (STILL IN VIEWMODEL) ---

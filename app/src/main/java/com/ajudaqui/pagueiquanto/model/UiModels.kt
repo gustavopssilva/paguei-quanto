@@ -4,13 +4,13 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-data class MockProduct(
+data class ProductState(
     val id: String,
     val name: String,
     val unit: String,
-    val history: List<MockPriceRecord>
+    val history: List<PriceRecordState>
 ) {
-    val lastEntry: MockPriceRecord? get() = history.maxByOrNull { it.dateMillis }
+    val lastEntry: PriceRecordState? get() = history.maxByOrNull { it.dateMillis }
     
     fun calculateDelta(currentPrice: Double?): Double? {
         val lastPrice = lastEntry?.unitPrice ?: return null
@@ -28,7 +28,7 @@ data class MockProduct(
     }
 }
 
-data class MockPriceRecord(
+data class PriceRecordState(
     val id: String,
     val date: String, // format yyyy-MM-dd
     val store: String,
@@ -44,11 +44,11 @@ data class MockPriceRecord(
         }
 }
 
-data class MockAccount(
+data class AccountState(
     val id: String,
     val name: String,
     val icon: String,
-    val products: List<MockProduct>,
+    val products: List<ProductState>,
     val nextPurchasePrediction: String? = null,
     val predictionProgress: Float = 0f
 ) {
