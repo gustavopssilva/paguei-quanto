@@ -28,7 +28,8 @@ data class Product(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val unit: String,
-    val accountId: Long
+    val accountId: Long,
+    val brand: String? = null
 )
 
 @Entity(
@@ -48,7 +49,9 @@ data class Purchase(
     val accountId: Long,
     val date: Long,
     val store: String,
-    val nickname: String?
+    val nickname: String?,
+    val isDraft: Boolean = false,
+    val invoiceUrl: String? = null
 )
 
 @Entity(

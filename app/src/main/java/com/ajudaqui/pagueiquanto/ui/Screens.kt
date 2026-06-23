@@ -1,5 +1,6 @@
 package com.ajudaqui.pagueiquanto.ui
 
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -120,9 +121,11 @@ fun HomeScreen(
     latestPurchase: Pair<AccountState, String>?,
     onOpenAccount: (String) -> Unit,
     onOpenPurchase: (String, String?) -> Unit,
-    onAddAccount: (String, String) -> Unit
+    onAddAccount: (String, String) -> Unit,
+    onDeleteAccount: ((String) -> Unit)? = null
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var accountToDelete by remember { mutableStateOf<AccountState?>(null) }
 
     Scaffold(
         topBar = { PagueiQuantoTopBar(title = "Meus Gastos", subtitle = "Lembretes de compra", actions = { IconButton(onClick = {}) { Icon(Icons.Outlined.Notifications, null) } }) },
@@ -153,7 +156,11 @@ fun HomeScreen(
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 items(accounts) { account -> 
-                    ReminderListCard(account = account, onClick = { onOpenAccount(account.id) }) 
+                    ReminderListCard(
+                        account = account, 
+                        onClick = { onOpenAccount(account.id) },
+                        onLongClick = { accountToDelete = account }
+                    ) 
                 }
             }
         }
@@ -161,6 +168,29 @@ fun HomeScreen(
     if (showAddDialog) {
         var name by remember { mutableStateOf("") }
         AlertDialog(onDismissRequest = { showAddDialog = false }, title = { Text("Nova Lista") }, text = { OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome da Lista") }, modifier = Modifier.fillMaxWidth()) }, confirmButton = { Button(onClick = { if (name.isNotBlank()) { onAddAccount(name, "cart"); showAddDialog = false } }) { Text("Criar") } })
+    }
+    if (accountToDelete != null && onDeleteAccount != null) {
+        AlertDialog(
+            onDismissRequest = { accountToDelete = null },
+            title = { Text("Excluir Categoria?") },
+            text = { Text("Deseja realmente excluir permanentemente a categoria \"${accountToDelete!!.name}\" e todas as compras vinculadas?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteAccount(accountToDelete!!.id)
+                        accountToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -182,9 +212,10 @@ fun HeroCard(account: AccountState, date: String, onOpen: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ReminderListCard(account: AccountState, onClick: () -> Unit) {
-    Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Slate100)) {
+fun ReminderListCard(account: AccountState, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+    Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Slate100)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), shape = RoundedCornerShape(10.dp)) {
@@ -230,7 +261,14 @@ fun LatestItemRow(product: ProductState) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun CategoryHistoryScreen(account: AccountState, onNewPurchase: () -> Unit, onOpenPurchase: (String, String?) -> Unit, onDeleteAccount: (() -> Unit)? = null) {
+fun CategoryHistoryScreen(
+    account: AccountState, 
+    onNewPurchase: () -> Unit, 
+    onOpenPurchase: (String, String?) -> Unit, 
+    onDeletePurchase: ((String, String?) -> Unit)? = null
+) {
+    var purchaseToDelete by remember { mutableStateOf<Pair<String, String?>?>(null) }
+
     Scaffold(topBar = { PagueiQuantoTopBar(title = account.name, subtitle = "Histórico de compras") }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             // Banner de Previsão na Categoria
@@ -271,53 +309,42 @@ fun CategoryHistoryScreen(account: AccountState, onNewPurchase: () -> Unit, onOp
             ) {
                 items(history) { (_, records) ->
                     val first = records.first().first
-                    PurchaseHistoryItem(date = first.date, nickname = first.nickname, total = records.sumOf { it.first.unitPrice * it.first.quantity }, qty = records.size, onClick = { onOpenPurchase(first.date, first.nickname) })
-                }
-            }
-            if (onDeleteAccount != null) {
-                val context = androidx.compose.ui.platform.LocalContext.current
-                var showConfirmDelete by remember { mutableStateOf(false) }
-                
-                Box(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { android.widget.Toast.makeText(context, "Pressione e segure para excluir a categoria", android.widget.Toast.LENGTH_SHORT).show() },
-                            onLongClick = { showConfirmDelete = true }
-                        )
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Excluir Categoria (Segure para excluir)", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                }
-
-                if (showConfirmDelete) {
-                    AlertDialog(
-                        onDismissRequest = { showConfirmDelete = false },
-                        title = { Text("Excluir Categoria?") },
-                        text = { Text("Isso excluirá permanentemente esta categoria e todos os seus itens e compras vinculados.") },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    showConfirmDelete = false
-                                    onDeleteAccount()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("Excluir")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showConfirmDelete = false }) {
-                                Text("Cancelar")
-                            }
-                        }
+                    PurchaseHistoryItem(
+                        date = first.date, 
+                        nickname = first.nickname, 
+                        total = records.sumOf { it.first.unitPrice * it.first.quantity }, 
+                        qty = records.size, 
+                        onClick = { onOpenPurchase(first.date, first.nickname) },
+                        onLongClick = { purchaseToDelete = first.date to first.nickname }
                     )
                 }
             }
         }
+    }
+
+    if (purchaseToDelete != null && onDeletePurchase != null) {
+        val (date, nickname) = purchaseToDelete!!
+        AlertDialog(
+            onDismissRequest = { purchaseToDelete = null },
+            title = { Text("Excluir Compra?") },
+            text = { Text("Deseja realmente excluir permanentemente esta compra do dia ${formatDate(date)}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeletePurchase(date, nickname)
+                        purchaseToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { purchaseToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -332,11 +359,43 @@ fun CategoryProductsScreen(account: AccountState, onOpenProduct: (String) -> Uni
 }
 
 @Composable
-fun AllListsScreen(accounts: List<AccountState>, onOpenAccount: (String) -> Unit) {
+fun AllListsScreen(accounts: List<AccountState>, onOpenAccount: (String) -> Unit, onDeleteAccount: ((String) -> Unit)? = null) {
+    var accountToDelete by remember { mutableStateOf<AccountState?>(null) }
+
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Minhas Listas", subtitle = "Categorias de compra") }) { padding ->
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(accounts) { account -> ReminderListCard(account = account, onClick = { onOpenAccount(account.id) }) }
+            items(accounts) { account -> 
+                ReminderListCard(
+                    account = account, 
+                    onClick = { onOpenAccount(account.id) },
+                    onLongClick = { accountToDelete = account }
+                ) 
+            }
         }
+    }
+
+    if (accountToDelete != null && onDeleteAccount != null) {
+        AlertDialog(
+            onDismissRequest = { accountToDelete = null },
+            title = { Text("Excluir Categoria?") },
+            text = { Text("Deseja realmente excluir permanentemente a categoria \"${accountToDelete!!.name}\" e todas as compras vinculadas?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteAccount(accountToDelete!!.id)
+                        accountToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
@@ -411,9 +470,10 @@ fun ProfileScreen() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PurchaseHistoryItem(date: String, nickname: String?, total: Double, qty: Int, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+fun PurchaseHistoryItem(date: String, nickname: String?, total: Double, qty: Int, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+    Card(modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick), colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(formatDate(date), fontWeight = FontWeight.Black, fontSize = 16.sp)
@@ -433,16 +493,31 @@ fun PurchaseDetailScreen(
     nickname: String?, 
     items: List<Pair<ProductState, PriceRecordState>>, 
     onBack: () -> Unit, 
-    onDeletePurchase: (() -> Unit)? = null, 
     onDeleteItem: ((PriceRecordState) -> Unit)? = null,
-    onUpdateItem: ((PriceRecordState, Double, Double) -> Unit)? = null
+    onUpdateItem: ((PriceRecordState, Double, Double) -> Unit)? = null,
+    onAddItem: ((String, String, Double, Double, String) -> Unit)? = null
 ) {
     var editingRecord by remember { mutableStateOf<Pair<ProductState, PriceRecordState>?>(null) }
     var activeItemActions by remember { mutableStateOf<Pair<ProductState, PriceRecordState>?>(null) }
+    var itemToDelete by remember { mutableStateOf<PriceRecordState?>(null) }
+    var showAddItemDialog by remember { mutableStateOf(false) }
     val visibleItems = items.filter { it.second.unitPrice > 0.0 }
     val context = androidx.compose.ui.platform.LocalContext.current
     
-    Scaffold(topBar = { PagueiQuantoTopBar(title = nickname ?: formatDate(date), subtitle = formatDate(date), onBack = onBack) }) { padding ->
+    Scaffold(
+        topBar = { 
+            PagueiQuantoTopBar(
+                title = nickname ?: formatDate(date), 
+                subtitle = formatDate(date), 
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = { showAddItemDialog = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Adicionar Item")
+                    }
+                }
+            ) 
+        }
+    ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
             val total = visibleItems.sumOf { it.second.unitPrice * it.second.quantity }
             Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) {
@@ -466,52 +541,13 @@ fun PurchaseDetailScreen(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                            Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Bold); Text("${record.quantity}${product.unit}", style = MaterialTheme.typography.bodySmall, color = Slate500) }
+                            Column(Modifier.weight(1f)) { 
+                                Text(product.name + if (!product.brand.isNullOrBlank()) " (${product.brand})" else "", fontWeight = FontWeight.Bold)
+                                Text("${record.quantity}${product.unit}", style = MaterialTheme.typography.bodySmall, color = Slate500) 
+                            }
                             Text("R$ ${String.format("%.2f", record.unitPrice).replace(".", ",")}", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
-                }
-            }
-            if (onDeletePurchase != null) {
-                var showConfirmDelete by remember { mutableStateOf(false) }
-
-                Box(
-                    modifier = Modifier
-                        .padding(16.dp)
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .combinedClickable(
-                            onClick = { android.widget.Toast.makeText(context, "Pressione e segure para excluir a compra", android.widget.Toast.LENGTH_SHORT).show() },
-                            onLongClick = { showConfirmDelete = true }
-                        )
-                        .padding(12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Excluir Compra (Segure para excluir)", color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                }
-
-                if (showConfirmDelete) {
-                    AlertDialog(
-                        onDismissRequest = { showConfirmDelete = false },
-                        title = { Text("Excluir Compra?") },
-                        text = { Text("Isso excluirá permanentemente esta compra do seu histórico.") },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    showConfirmDelete = false
-                                    onDeletePurchase()
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Text("Excluir")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showConfirmDelete = false }) {
-                                Text("Cancelar")
-                            }
-                        }
-                    )
                 }
             }
         }
@@ -535,9 +571,7 @@ fun PurchaseDetailScreen(
                     }
                     Button(
                         onClick = {
-                            if (onDeleteItem != null) {
-                                onDeleteItem(record)
-                            }
+                            itemToDelete = record
                             activeItemActions = null
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
@@ -548,6 +582,30 @@ fun PurchaseDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { activeItemActions = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (itemToDelete != null && onDeleteItem != null) {
+        AlertDialog(
+            onDismissRequest = { itemToDelete = null },
+            title = { Text("Excluir Item?") },
+            text = { Text("Tem certeza que deseja remover este item desta compra?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteItem(itemToDelete!!)
+                        itemToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Excluir")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { itemToDelete = null }) {
                     Text("Cancelar")
                 }
             }
@@ -600,6 +658,46 @@ fun PurchaseDetailScreen(
             }
         )
     }
+
+    if (showAddItemDialog) {
+        var name by remember { mutableStateOf("") }
+        var unit by remember { mutableStateOf("un") }
+        var brand by remember { mutableStateOf("") }
+        var priceInput by remember { mutableStateOf("") }
+        var qtyInput by remember { mutableStateOf("1") }
+        AlertDialog(
+            onDismissRequest = { showAddItemDialog = false },
+            title = { Text("Adicionar Item à Compra") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nome do Item") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = unit, onValueChange = { unit = it }, label = { Text("Unidade (ex: un, kg, L)") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = brand, onValueChange = { brand = it }, label = { Text("Marca") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Valor Unitário") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(value = qtyInput, onValueChange = { qtyInput = it }, label = { Text("Quantidade") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (name.isNotBlank() && onAddItem != null) {
+                            val price = priceInput.replace(",", ".").toDoubleOrNull() ?: 0.0
+                            val qty = qtyInput.replace(",", ".").toDoubleOrNull() ?: 1.0
+                            onAddItem(name, unit, price, qty, brand)
+                        }
+                        showAddItemDialog = false
+                    }
+                ) {
+                    Text("Adicionar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddItemDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -633,10 +731,43 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
     val total = items.sumOf { (it.actualQty.toDoubleOrNull() ?: 0.0) * (it.currentPrice.toDoubleOrNull() ?: 0.0) }
     var showAddItemDialog by remember { mutableStateOf(false) }
     var nickname by remember { mutableStateOf("") }
-    Scaffold(topBar = { PagueiQuantoTopBar(title = "Nova Compra", onBack = onBack, actions = { IconButton(onClick = { showAddItemDialog = true }) { Icon(Icons.Outlined.AddCircleOutline, null) } }) }, bottomBar = { Surface(modifier = Modifier.fillMaxWidth().imePadding(), color = Color.White, shadowElevation = 8.dp) { Button(onClick = { viewModel.savePurchase("Loja Padrão", if (nickname.isBlank()) null else nickname); onBack() }, modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text("Finalizar Compra", fontWeight = FontWeight.Bold) } } }) { padding ->
+    var invoiceUrl by remember { mutableStateOf<String?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scanner = remember { GmsBarcodeScanning.getClient(context) }
+    // Ao sair sem finalizar, grava o rascunho imediatamente para não perder edições recentes.
+    val backWithFlush = { viewModel.flushDraft(); onBack() }
+    androidx.activity.compose.BackHandler { backWithFlush() }
+
+    Scaffold(topBar = { PagueiQuantoTopBar(title = "Nova Compra", onBack = backWithFlush, actions = { IconButton(onClick = { showAddItemDialog = true }) { Icon(Icons.Outlined.AddCircleOutline, null) } }) }, bottomBar = { Surface(modifier = Modifier.fillMaxWidth().imePadding(), color = Color.White, shadowElevation = 8.dp) { Button(onClick = { viewModel.savePurchase("Loja Padrão", if (nickname.isBlank()) null else nickname, invoiceUrl); onBack() }, modifier = Modifier.padding(16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Check, null); Spacer(Modifier.width(8.dp)); Text("Finalizar Compra", fontWeight = FontWeight.Bold) } } }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(value = nickname, onValueChange = { nickname = it }, label = { Text("Apelido desta compra") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = nickname, 
+                        onValueChange = { nickname = it }, 
+                        label = { Text(if (!invoiceUrl.isNullOrBlank()) "Nota Escaneada" else "Apelido desta compra") }, 
+                        modifier = Modifier.weight(1f), 
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    IconButton(
+                        onClick = {
+                            scanner.startScan()
+                                .addOnSuccessListener { barcode ->
+                                    val rawValue = barcode.rawValue
+                                    if (!rawValue.isNullOrBlank()) {
+                                        invoiceUrl = rawValue
+                                        android.widget.Toast.makeText(context, "QR Code Lido com Sucesso!", android.widget.Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                                .addOnFailureListener { e ->
+                                    android.widget.Toast.makeText(context, "Erro ao escanear: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                        },
+                        modifier = Modifier.size(56.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+                    ) {
+                        Icon(Icons.Default.QrCodeScanner, contentDescription = "Escanear Nota Fiscal", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
                 Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = RoundedCornerShape(16.dp)) {
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column { Text("DATA DA COMPRA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); Text(SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(java.util.Date()), fontWeight = FontWeight.Bold) }
@@ -645,13 +776,14 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
                 }
             }
             LazyColumn(modifier = Modifier.fillMaxSize().imePadding(), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(items) { item -> PurchaseChecklistItem(item = item, onToggleEdit = { viewModel.toggleEdit(item.productId) }, onUpdate = { p, q, rq -> viewModel.updateItem(item.productId, p, q, rq) }, delta = viewModel.calculateDelta(item)) }
+                items(items) { item -> PurchaseChecklistItem(item = item, onToggleEdit = { viewModel.toggleEdit(item.productId) }, onUpdate = { p: String, q: String, rq: String?, b: String? -> viewModel.updateItem(item.productId, p, q, rq, b) }, delta = viewModel.calculateDelta(item)) }
             }
         }
     }
     if (showAddItemDialog) {
         var name by remember { mutableStateOf("") }
         var unit by remember { mutableStateOf("un") }
+        var brand by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showAddItemDialog = false },
             title = { Text("Novo Item") },
@@ -669,13 +801,19 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
                         label = { Text("Unidade de Medida (ex: un, kg, L)") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    OutlinedTextField(
+                        value = brand,
+                        onValueChange = { brand = it },
+                        label = { Text("Marca") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         if (name.isNotBlank()) {
-                            viewModel.addNewItem(name, unit)
+                            viewModel.addNewItem(name, unit, brand)
                             showAddItemDialog = false
                         }
                     }
@@ -698,7 +836,7 @@ fun ProductCard(product: ProductState, onClick: () -> Unit) {
     Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(modifier = Modifier.size(44.dp), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(12.dp)) { Box(contentAlignment = Alignment.Center) { Text(product.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Slate500) } }
-            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Bold); Text(if (lastEntry != null) "${lastEntry.quantity}${product.unit} em ${formatDate(lastEntry.date)}" else "Sem registros", style = MaterialTheme.typography.bodySmall, color = Slate500) }
+            Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(product.name + if (!product.brand.isNullOrBlank()) " (${product.brand})" else "", fontWeight = FontWeight.Bold); Text(if (lastEntry != null) "${lastEntry.quantity}${product.unit} em ${formatDate(lastEntry.date)}" else "Sem registros", style = MaterialTheme.typography.bodySmall, color = Slate500) }
             Column(horizontalAlignment = Alignment.End) { if (lastEntry != null) Text("R$ ${String.format("%.2f", lastEntry.unitPrice).replace(".", ",")}", fontWeight = FontWeight.Bold) ; PriceVariationBadge(delta = product.historicalDelta(), size = "sm") }
             Spacer(Modifier.width(8.dp)); Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.size(20.dp))
         }
@@ -706,13 +844,13 @@ fun ProductCard(product: ProductState, onClick: () -> Unit) {
 }
 
 @Composable
-fun PurchaseChecklistItem(item: PurchaseItemState, onToggleEdit: () -> Unit, onUpdate: (String, String, String?) -> Unit, delta: Double?) {
+fun PurchaseChecklistItem(item: PurchaseItemState, onToggleEdit: () -> Unit, onUpdate: (String, String, String?, String?) -> Unit, delta: Double?) {
     val isEditing = item.isEditing; val borderColor = if (isEditing) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     Card(modifier = Modifier.fillMaxWidth().clickable { onToggleEdit() }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(20.dp), border = BorderStroke(if (isEditing) 2.dp else 1.dp, borderColor)) {
         Column {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Surface(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) { Box(contentAlignment = Alignment.Center) { Text(item.productName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Slate500) } }
-                Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(item.productName, fontWeight = FontWeight.Bold); Text("Último: R$ ${String.format("%.2f", item.lastUnitPrice ?: 0.0).replace(".", ",")} (${item.lastQuantity ?: "--"}${item.unit})", style = MaterialTheme.typography.bodySmall, color = Slate500) }
+                Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(item.productName + if (item.brand.isNotBlank()) " (${item.brand})" else "", fontWeight = FontWeight.Bold); Text("Último: R$ ${String.format("%.2f", item.lastUnitPrice ?: 0.0).replace(".", ",")} (${item.lastQuantity ?: "--"}${item.unit})", style = MaterialTheme.typography.bodySmall, color = Slate500) }
                 if (item.actualQty.isNotEmpty() && item.currentPrice.isNotEmpty()) {
                     val currentVal = (item.actualQty.toDoubleOrNull() ?: 0.0) * (item.currentPrice.toDoubleOrNull() ?: 0.0)
                     Column(horizontalAlignment = Alignment.End) { Text("R$ ${String.format("%.2f", currentVal).replace(".", ",")}", fontWeight = FontWeight.Bold); Text("${item.actualQty}${item.unit}", style = MaterialTheme.typography.labelSmall, color = Slate500) }
@@ -721,12 +859,13 @@ fun PurchaseChecklistItem(item: PurchaseItemState, onToggleEdit: () -> Unit, onU
             }
             AnimatedVisibility(visible = isEditing) {
                 Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(16.dp)) {
+                    OutlinedTextField(value = item.brand, onValueChange = { onUpdate(item.currentPrice, item.actualQty, null, it) }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), label = { Text("MARCA") })
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f)) { Text("QTD PRETENDIDA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.requestedQty.toString(), onValueChange = { onUpdate(item.currentPrice, item.actualQty, it) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
-                        Column(Modifier.weight(1f)) { Text("QTD COMPRADA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.actualQty, onValueChange = { onUpdate(item.currentPrice, it, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
+                        Column(Modifier.weight(1f)) { Text("QTD PRETENDIDA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.requestedQty.toString(), onValueChange = { onUpdate(item.currentPrice, item.actualQty, it, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
+                        Column(Modifier.weight(1f)) { Text("QTD COMPRADA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.actualQty, onValueChange = { onUpdate(item.currentPrice, it, null, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
                     }
                     Spacer(Modifier.height(12.dp))
-                    Column { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("VALOR UNITÁRIO ATUAL", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); PriceVariationBadge(delta = delta) }; OutlinedTextField(value = item.currentPrice, onValueChange = { onUpdate(it, item.actualQty, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), placeholder = { Text("R$ 0,00") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) }
+                    Column { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("VALOR UNITÁRIO ATUAL", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); PriceVariationBadge(delta = delta) }; OutlinedTextField(value = item.currentPrice, onValueChange = { onUpdate(it, item.actualQty, null, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), placeholder = { Text("R$ 0,00") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) }
                     Button(onClick = onToggleEdit, modifier = Modifier.padding(top = 16.dp).fillMaxWidth(), shape = RoundedCornerShape(12.dp)) { Text("Confirmar Item", fontWeight = FontWeight.Bold) }
                 }
             }

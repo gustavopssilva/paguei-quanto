@@ -24,7 +24,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "pagueiquanto-db").build()
+        val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "pagueiquanto-db")
+            .fallbackToDestructiveMigration()
+            .build()
         val repository = ShoppingRepository(db.shoppingDao())
         val factory = ShoppingViewModelFactory(repository)
         val viewModel: ShoppingViewModel by viewModels { factory }
@@ -100,15 +102,14 @@ class MainActivity : ComponentActivity() {
                                     nickname = nick, 
                                     items = items, 
                                     onBack = { showPurchaseDetail = null },
-                                    onDeletePurchase = {
-                                        viewModel.deletePurchaseByDate(date, nick)
-                                        showPurchaseDetail = null
-                                    },
                                     onDeleteItem = { record ->
                                         viewModel.deletePriceRecord(record.id)
                                     },
                                     onUpdateItem = { record, price, qty ->
                                         viewModel.updatePriceRecord(record.id, price, qty)
+                                    },
+                                    onAddItem = { name, unit, price, qty, brand ->
+                                        viewModel.addItemToExistingPurchase(date, nick, name, unit, price, qty, brand)
                                     }
                                 )
                             }
@@ -119,7 +120,8 @@ class MainActivity : ComponentActivity() {
                                         latestPurchase = viewModel.getLatestPurchaseGlobal(),
                                         onOpenAccount = { id -> viewModel.selectAccount(id); currentTab = 1 },
                                         onOpenPurchase = { date, nick -> showPurchaseDetail = date to nick },
-                                        onAddAccount = { name, icon -> viewModel.createAccount(name, icon) }
+                                        onAddAccount = { name, icon -> viewModel.createAccount(name, icon) },
+                                        onDeleteAccount = { id -> viewModel.deleteAccount(id) }
                                     )
                                     1 -> {
                                         if (selectedAccount != null) {
@@ -127,13 +129,16 @@ class MainActivity : ComponentActivity() {
                                                 account = selectedAccount,
                                                 onNewPurchase = { showNewPurchase = true },
                                                 onOpenPurchase = { date, nick -> showPurchaseDetail = date to nick },
-                                                onDeleteAccount = {
-                                                    viewModel.deleteAccount(selectedAccount.id)
-                                                    viewModel.selectAccount(null)
+                                                onDeletePurchase = { date, nick -> 
+                                                    viewModel.deletePurchaseByDate(date, nick)
                                                 }
                                             )
                                         } else {
-                                            AllListsScreen(accounts = accounts, onOpenAccount = { id -> viewModel.selectAccount(id) })
+                                            AllListsScreen(
+                                                accounts = accounts, 
+                                                onOpenAccount = { id -> viewModel.selectAccount(id) },
+                                                onDeleteAccount = { id -> viewModel.deleteAccount(id) }
+                                            )
                                         }
                                     }
                                     2 -> {

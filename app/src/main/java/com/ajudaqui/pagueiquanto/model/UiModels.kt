@@ -8,6 +8,7 @@ data class ProductState(
     val id: String,
     val name: String,
     val unit: String,
+    val brand: String? = null,
     val history: List<PriceRecordState>
 ) {
     val lastEntry: PriceRecordState? get() = history.maxByOrNull { it.dateMillis }

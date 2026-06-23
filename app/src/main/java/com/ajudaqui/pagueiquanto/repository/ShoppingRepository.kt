@@ -22,26 +22,30 @@ class ShoppingRepository(private val dao: ShoppingDao) {
         dao.getAllPriceRecords()
     ) { dbAccounts, dbProducts, dbPurchases, dbPriceRecords ->
         
-        // Mapeia purchaseId para a compra correspondente para pegar data, loja, apelido
-        val purchaseMap = dbPurchases.associateBy { it.id }
+        // Mapeia purchaseId para a compra correspondente apenas para compras concluídas (não rascunhos)
+        val completedPurchases = dbPurchases.filter { !it.isDraft }
+        val purchaseMap = completedPurchases.associateBy { it.id }
 
-        // Mapeia productId para a lista de registros de preço correspondentes (PriceRecordState)
-        val recordsByProduct = dbPriceRecords.groupBy { it.productId }.mapValues { (_, records) ->
-            records.map { record ->
-                val purchase = purchaseMap[record.purchaseId]
-                val dateStr = purchase?.let {
-                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date(it.date))
-                } ?: "2026-06-10"
-                PriceRecordState(
-                    id = record.id.toString(),
-                    date = dateStr,
-                    store = purchase?.store ?: "Loja Padrão",
-                    unitPrice = record.unitPrice,
-                    quantity = record.quantity,
-                    nickname = purchase?.nickname
-                )
+        // Mapeia productId para a lista de registros de preço concluídos correspondentes (PriceRecordState)
+        val recordsByProduct = dbPriceRecords
+            .filter { purchaseMap.containsKey(it.purchaseId) }
+            .groupBy { it.productId }
+            .mapValues { (_, records) ->
+                records.map { record ->
+                    val purchase = purchaseMap[record.purchaseId]
+                    val dateStr = purchase?.let {
+                        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date(it.date))
+                    } ?: "2026-06-10"
+                    PriceRecordState(
+                        id = record.id.toString(),
+                        date = dateStr,
+                        store = purchase?.store ?: "Loja Padrão",
+                        unitPrice = record.unitPrice,
+                        quantity = record.quantity,
+                        nickname = purchase?.nickname
+                    )
+                }
             }
-        }
 
         // Mapeia accountId para a lista de produtos (ProductState)
         val productsByAccount = dbProducts.groupBy { it.accountId }.mapValues { (_, products) ->
@@ -50,6 +54,7 @@ class ShoppingRepository(private val dao: ShoppingDao) {
                     id = product.id.toString(),
                     name = product.name,
                     unit = product.unit,
+                    brand = product.brand,
                     history = recordsByProduct[product.id] ?: emptyList()
                 )
             }
@@ -129,39 +134,117 @@ class ShoppingRepository(private val dao: ShoppingDao) {
         }
     }
 
+    suspend fun getDraftPurchase(accountId: String): com.ajudaqui.pagueiquanto.model.Purchase? {
+        val accId = accountId.toLongOrNull() ?: return null
+        return withContext(Dispatchers.IO) {
+            dao.getAllPurchases().first().find { it.accountId == accId && it.isDraft }
+        }
+    }
+
+    suspend fun getDraftPriceRecords(purchaseId: Long): List<com.ajudaqui.pagueiquanto.model.PriceRecord> {
+        return withContext(Dispatchers.IO) {
+            dao.getAllPriceRecords().first().filter { it.purchaseId == purchaseId }
+        }
+    }
+
+    suspend fun getProductById(productId: Long): com.ajudaqui.pagueiquanto.model.Product? {
+        return withContext(Dispatchers.IO) {
+            dao.getProductById(productId)
+        }
+    }
+
+    /**
+     * Salva o rascunho atual no banco e retorna o mapa de ids temporários ("new_...") para o id real
+     * gerado no banco, para que o chamador possa reusar o produto e evitar duplicatas em saves seguintes.
+     */
+    suspend fun saveDraftTransaction(accountId: String, items: List<com.ajudaqui.pagueiquanto.viewmodel.PurchaseItemState>): Map<String, String> {
+        val accId = accountId.toLongOrNull() ?: return emptyMap()
+        val resolvedIds = mutableMapOf<String, String>()
+        withContext(Dispatchers.IO) {
+            val allPurchases = dao.getAllPurchases().first()
+            val draft = allPurchases.find { it.accountId == accId && it.isDraft }
+            val dateMillis = System.currentTimeMillis()
+            val draftId = if (draft == null) {
+                dao.insertPurchase(com.ajudaqui.pagueiquanto.model.Purchase(
+                    accountId = accId,
+                    date = dateMillis,
+                    store = "Loja Rascunho",
+                    nickname = "Rascunho",
+                    isDraft = true
+                ))
+            } else {
+                draft.id
+            }
+
+            val existingRecords = dao.getAllPriceRecords().first().filter { it.purchaseId == draftId }
+            existingRecords.forEach {
+                dao.deletePriceRecordById(it.id)
+            }
+
+            items.forEach { item ->
+                var prodId = item.productId.toLongOrNull()
+
+                if (prodId == null || item.productId.startsWith("new_")) {
+                    prodId = dao.insertProduct(com.ajudaqui.pagueiquanto.model.Product(
+                        name = item.productName,
+                        unit = item.unit,
+                        accountId = accId,
+                        brand = item.brand
+                    ))
+                    resolvedIds[item.productId] = prodId.toString()
+                }
+
+                val qtyVal = if (item.actualQty.isBlank()) 1.0 else (item.actualQty.replace(",", ".").toDoubleOrNull() ?: 1.0)
+                dao.insertRecord(com.ajudaqui.pagueiquanto.model.PriceRecord(
+                    productId = prodId,
+                    purchaseId = draftId,
+                    unitPrice = item.currentPrice.replace(",", ".").toDoubleOrNull() ?: 0.0,
+                    quantity = qtyVal
+                ))
+            }
+        }
+        return resolvedIds
+    }
+
     suspend fun savePurchaseTransaction(
         accountId: String, 
         store: String, 
         nickname: String?, 
-        items: List<com.ajudaqui.pagueiquanto.viewmodel.PurchaseItemState>
+        items: List<com.ajudaqui.pagueiquanto.viewmodel.PurchaseItemState>,
+        invoiceUrl: String? = null
     ) {
         val accId = accountId.toLongOrNull() ?: return
         
         withContext(Dispatchers.IO) {
             val dateMillis = System.currentTimeMillis()
             
-            // 1. Salva a nova Compra
+            val allPurchases = dao.getAllPurchases().first()
+            val draft = allPurchases.find { it.accountId == accId && it.isDraft }
+            if (draft != null) {
+                dao.deletePurchaseById(draft.id)
+            }
+            
             val purchaseId = dao.insertPurchase(com.ajudaqui.pagueiquanto.model.Purchase(
                 accountId = accId,
                 date = dateMillis,
                 store = store,
-                nickname = nickname
+                nickname = nickname,
+                isDraft = false,
+                invoiceUrl = invoiceUrl
             ))
 
-            // 2. Salva os produtos novos criados e os registros de preço de cada item
             items.forEach { item ->
                 var prodId = item.productId.toLongOrNull()
                 
-                // Se for um item novo adicionado na hora, salva primeiro no banco
                 if (prodId == null || item.productId.startsWith("new_")) {
                     prodId = dao.insertProduct(com.ajudaqui.pagueiquanto.model.Product(
                         name = item.productName,
                         unit = item.unit,
-                        accountId = accId
+                        accountId = accId,
+                        brand = item.brand
                     ))
                 }
 
-                // Salva o registro de preço associado à compra
                 val qtyVal = if (item.actualQty.isBlank()) 1.0 else (item.actualQty.replace(",", ".").toDoubleOrNull() ?: 1.0)
                 dao.insertRecord(com.ajudaqui.pagueiquanto.model.PriceRecord(
                     productId = prodId,
@@ -204,6 +287,48 @@ class ShoppingRepository(private val dao: ShoppingDao) {
         val recId = recordId.toLongOrNull() ?: return
         withContext(Dispatchers.IO) {
             dao.updatePriceRecord(recId, unitPrice, quantity)
+        }
+    }
+
+    suspend fun addItemToExistingPurchase(
+        date: String,
+        nickname: String?,
+        productName: String,
+        unit: String,
+        price: Double,
+        quantity: Double,
+        brand: String? = null
+    ) {
+        withContext(Dispatchers.IO) {
+            val allPurchases = dao.getAllPurchases().first()
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val purchase = allPurchases.find { p ->
+                val dateStr = sdf.format(java.util.Date(p.date))
+                dateStr == date && p.nickname == nickname
+            } ?: return@withContext
+
+            val accId = purchase.accountId
+
+            val allProducts = dao.getAllProducts().first()
+            val existingProduct = allProducts.find { it.accountId == accId && it.name.equals(productName, ignoreCase = true) }
+            
+            val prodId = existingProduct?.id ?: dao.insertProduct(
+                com.ajudaqui.pagueiquanto.model.Product(
+                    name = productName,
+                    unit = unit,
+                    accountId = accId,
+                    brand = brand
+                )
+            )
+
+            dao.insertRecord(
+                com.ajudaqui.pagueiquanto.model.PriceRecord(
+                    productId = prodId,
+                    purchaseId = purchase.id,
+                    unitPrice = price,
+                    quantity = quantity
+                )
+            )
         }
     }
 }

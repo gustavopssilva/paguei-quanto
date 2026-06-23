@@ -76,9 +76,12 @@ interface ShoppingDao {
 
     @Query("SELECT * FROM purchases WHERE date = :date")
     suspend fun getPurchasesByDate(date: Long): List<Purchase>
+
+    @Query("SELECT * FROM products WHERE id = :id")
+    suspend fun getProductById(id: Long): Product?
 }
 
-@Database(entities = [Account::class, Product::class, Purchase::class, PriceRecord::class], version = 1, exportSchema = false)
+@Database(entities = [Account::class, Product::class, Purchase::class, PriceRecord::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun shoppingDao(): ShoppingDao
 }
