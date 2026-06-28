@@ -27,7 +27,7 @@ class MainActivity : ComponentActivity() {
         val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "pagueiquanto-db")
             .fallbackToDestructiveMigration()
             .build()
-        val repository = ShoppingRepository(db.shoppingDao())
+        val repository = ShoppingRepository(db.shoppingDao(), applicationContext)
         val factory = ShoppingViewModelFactory(repository)
         val viewModel: ShoppingViewModel by viewModels { factory }
         

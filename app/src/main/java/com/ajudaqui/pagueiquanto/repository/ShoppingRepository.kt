@@ -12,7 +12,15 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class ShoppingRepository(private val dao: ShoppingDao) {
+import android.content.Context
+import java.security.MessageDigest
+import org.json.JSONObject
+import org.json.JSONArray
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPOutputStream
+import com.ajudaqui.pagueiquanto.PagueiQuantoApplication
+
+class ShoppingRepository(private val dao: ShoppingDao, private val context: Context) {
 
     // Observa reativamente os dados do banco de dados e mapeia para o estado esperado na UI (UiModels)
     val accounts: StateFlow<List<AccountState>> = combine(
@@ -132,6 +140,7 @@ class ShoppingRepository(private val dao: ShoppingDao) {
         withContext(Dispatchers.IO) {
             dao.insertAccount(com.ajudaqui.pagueiquanto.model.Account(name = name, icon = icon))
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun getDraftPurchase(accountId: String): com.ajudaqui.pagueiquanto.model.Purchase? {
@@ -203,6 +212,7 @@ class ShoppingRepository(private val dao: ShoppingDao) {
                 ))
             }
         }
+        notifyDatabaseChanged()
         return resolvedIds
     }
 
@@ -254,24 +264,28 @@ class ShoppingRepository(private val dao: ShoppingDao) {
                 ))
             }
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun deleteAccount(accountId: String) {
         withContext(Dispatchers.IO) {
             dao.deleteAccountById(accountId.toLongOrNull() ?: return@withContext)
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun deleteProduct(productId: String) {
         withContext(Dispatchers.IO) {
             dao.deleteProductById(productId.toLongOrNull() ?: return@withContext)
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun deletePriceRecord(recordId: String) {
         withContext(Dispatchers.IO) {
             dao.deletePriceRecordById(recordId.toLongOrNull() ?: return@withContext)
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun deletePurchaseByDate(date: String, nickname: String?) {
@@ -281,6 +295,7 @@ class ShoppingRepository(private val dao: ShoppingDao) {
                 dao.deletePriceRecordById(it.id.toLongOrNull() ?: return@forEach)
             }
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun updatePriceRecord(recordId: String, unitPrice: Double, quantity: Double) {
@@ -288,6 +303,7 @@ class ShoppingRepository(private val dao: ShoppingDao) {
         withContext(Dispatchers.IO) {
             dao.updatePriceRecord(recId, unitPrice, quantity)
         }
+        notifyDatabaseChanged()
     }
 
     suspend fun addItemToExistingPurchase(
@@ -330,5 +346,302 @@ class ShoppingRepository(private val dao: ShoppingDao) {
                 )
             )
         }
+        notifyDatabaseChanged()
+    }
+    private val prefs = context.getSharedPreferences("backup_prefs", Context.MODE_PRIVATE)
+
+    fun saveBackupCredentials(email: String, passwordHash: String) {
+        prefs.edit().apply {
+            putString("backup_email", email)
+            putString("backup_password_hash", passwordHash)
+            apply()
+        }
+    }
+
+    fun getBackupEmail(): String? = prefs.getString("backup_email", null)
+    fun getBackupPasswordHash(): String? = prefs.getString("backup_password_hash", null)
+
+    private fun notifyDatabaseChanged() {
+        prefs.edit().putLong("last_update", System.currentTimeMillis()).apply()
+    }
+
+    fun hasPendingChanges(): Boolean {
+        val lastUpdate = prefs.getLong("last_update", 0L)
+        val lastSync = prefs.getLong("last_sync", 0L)
+        return lastUpdate > lastSync
+    }
+
+    fun markBackupSynced() {
+        prefs.edit().putLong("last_sync", System.currentTimeMillis()).apply()
+    }
+
+    fun hasBackupCredentials(): Boolean {
+        return !getBackupEmail().isNullOrBlank() && !getBackupPasswordHash().isNullOrBlank()
+    }
+
+    suspend fun exportAllData(): String {
+        return withContext(Dispatchers.IO) {
+            val accounts = dao.getAllAccounts().first()
+            val products = dao.getAllProducts().first()
+            val purchases = dao.getAllPurchases().first()
+            val priceRecords = dao.getAllPriceRecords().first()
+
+            val rootJson = JSONObject().apply {
+                put("backup_version", 1)
+                put("timestamp", System.currentTimeMillis())
+                put("device_id", getBackupEmail() ?: "unknown")
+
+                val dataJson = JSONObject().apply {
+                    val accountsArray = JSONArray()
+                    accounts.forEach { acc ->
+                        accountsArray.put(JSONObject().apply {
+                            put("id", acc.id)
+                            put("name", acc.name)
+                            put("icon", acc.icon)
+                        })
+                    }
+                    put("accounts", accountsArray)
+
+                    val productsArray = JSONArray()
+                    products.forEach { prod ->
+                        productsArray.put(JSONObject().apply {
+                            put("id", prod.id)
+                            put("name", prod.name)
+                            put("unit", prod.unit)
+                            put("accountId", prod.accountId)
+                            put("brand", prod.brand)
+                        })
+                    }
+                    put("products", productsArray)
+
+                    val purchasesArray = JSONArray()
+                    purchases.forEach { pur ->
+                        purchasesArray.put(JSONObject().apply {
+                            put("id", pur.id)
+                            put("accountId", pur.accountId)
+                            put("date", pur.date)
+                            put("store", pur.store)
+                            put("nickname", pur.nickname)
+                            put("isDraft", pur.isDraft)
+                            put("invoiceUrl", pur.invoiceUrl)
+                        })
+                    }
+                    put("purchases", purchasesArray)
+
+                    val priceRecordsArray = JSONArray()
+                    priceRecords.forEach { pr ->
+                        priceRecordsArray.put(JSONObject().apply {
+                            put("id", pr.id)
+                            put("productId", pr.productId)
+                            put("purchaseId", pr.purchaseId)
+                            put("unitPrice", pr.unitPrice)
+                            put("quantity", pr.quantity)
+                        })
+                    }
+                    put("price_records", priceRecordsArray)
+                }
+                put("data", dataJson)
+            }
+            rootJson.toString()
+        }
+    }
+
+    fun compress(data: String): ByteArray {
+        val bos = ByteArrayOutputStream()
+        GZIPOutputStream(bos).use { gzip ->
+            gzip.write(data.toByteArray(Charsets.UTF_8))
+        }
+        return bos.toByteArray()
+    }
+
+    suspend fun sendBackupToLambda(bytes: ByteArray) {
+        withContext(Dispatchers.IO) {
+            val email = getBackupEmail() ?: throw Exception("No email configured")
+            val auth = getBackupPasswordHash() ?: throw Exception("No password hash configured")
+
+            val url = java.net.URL("https://backup.pagueiquanto.com/backup")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            try {
+                conn.doOutput = true
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/octet-stream")
+                conn.setRequestProperty("Content-Encoding", "gzip")
+                conn.setRequestProperty("X-Backup-Email", email)
+                conn.setRequestProperty("X-Backup-Auth", auth)
+                conn.setConnectTimeout(15000)
+                conn.setReadTimeout(15000)
+
+                conn.outputStream.use { os ->
+                    os.write(bytes)
+                }
+
+                val responseCode = conn.responseCode
+                if (responseCode != 200) {
+                    throw Exception("Failed to send backup: HTTP $responseCode")
+                }
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
+
+    suspend fun fetchBackupFromLambda(): String? {
+        return withContext(Dispatchers.IO) {
+            val email = getBackupEmail() ?: throw Exception("No email configured")
+            val auth = getBackupPasswordHash() ?: throw Exception("No password hash configured")
+
+            val url = java.net.URL("https://backup.pagueiquanto.com/restore")
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            try {
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("X-Backup-Email", email)
+                conn.setRequestProperty("X-Backup-Auth", auth)
+                conn.setConnectTimeout(15000)
+                conn.setReadTimeout(15000)
+
+                val responseCode = conn.responseCode
+                if (responseCode == 404) {
+                    return@withContext null
+                }
+                if (responseCode != 200) {
+                    throw Exception("Failed to restore backup: HTTP $responseCode")
+                }
+
+                val bytes = conn.inputStream.use { it.readBytes() }
+                decompress(bytes)
+            } finally {
+                conn.disconnect()
+            }
+        }
+    }
+
+    fun decompress(bytes: ByteArray): String {
+        val bis = java.io.ByteArrayInputStream(bytes)
+        java.util.zip.GZIPInputStream(bis).bufferedReader(Charsets.UTF_8).use { reader ->
+            return reader.readText()
+        }
+    }
+
+    suspend fun restoreAndMergeBackup(jsonString: String) {
+        withContext(Dispatchers.IO) {
+            val root = JSONObject(jsonString)
+            val dataObj = root.getJSONObject("data")
+
+            val accountsArray = dataObj.getJSONArray("accounts")
+            val productsArray = dataObj.getJSONArray("products")
+            val purchasesArray = dataObj.getJSONArray("purchases")
+            val priceRecordsArray = dataObj.getJSONArray("price_records")
+
+            val db = (context.applicationContext as PagueiQuantoApplication).database
+
+            // Executa em transação para consistência
+            db.runInTransaction {
+                kotlinx.coroutines.runBlocking {
+                    val localAccounts = dao.getAllAccounts().first()
+                    val localProducts = dao.getAllProducts().first()
+                    val localPurchases = dao.getAllPurchases().first()
+
+                    val accountIdMap = mutableMapOf<Long, Long>()
+                    val productIdMap = mutableMapOf<Long, Long>()
+                    val purchaseIdMap = mutableMapOf<Long, Long>()
+
+                    // 1. Mesclar Accounts
+                    for (i in 0 until accountsArray.length()) {
+                        val accJson = accountsArray.getJSONObject(i)
+                        val backupId = accJson.getLong("id")
+                        val name = accJson.getString("name")
+                        val icon = accJson.getString("icon")
+
+                        val existing = localAccounts.find { it.name.equals(name, ignoreCase = true) }
+                        if (existing != null) {
+                            accountIdMap[backupId] = existing.id
+                        } else {
+                            val newId = dao.insertAccount(com.ajudaqui.pagueiquanto.model.Account(name = name, icon = icon))
+                            accountIdMap[backupId] = newId
+                        }
+                    }
+
+                    // 2. Mesclar Products
+                    for (i in 0 until productsArray.length()) {
+                        val prodJson = productsArray.getJSONObject(i)
+                        val backupId = prodJson.getLong("id")
+                        val name = prodJson.getString("name")
+                        val unit = prodJson.getString("unit")
+                        val backupAccountId = prodJson.getLong("accountId")
+                        val brand = if (prodJson.isNull("brand")) null else prodJson.getString("brand")
+
+                        val mappedAccountId = accountIdMap[backupAccountId] ?: continue
+
+                        val existing = localProducts.find { it.name.equals(name, ignoreCase = true) && it.accountId == mappedAccountId }
+                        if (existing != null) {
+                            productIdMap[backupId] = existing.id
+                        } else {
+                            val newId = dao.insertProduct(com.ajudaqui.pagueiquanto.model.Product(
+                                name = name,
+                                unit = unit,
+                                accountId = mappedAccountId,
+                                brand = brand
+                            ))
+                            productIdMap[backupId] = newId
+                        }
+                    }
+
+                    // 3. Mesclar Purchases (Sobrescrever em caso de conflitos)
+                    for (i in 0 until purchasesArray.length()) {
+                        val purJson = purchasesArray.getJSONObject(i)
+                        val backupId = purJson.getLong("id")
+                        val backupAccountId = purJson.getLong("accountId")
+                        val date = purJson.getLong("date")
+                        val store = purJson.getString("store")
+                        val nickname = if (purJson.isNull("nickname")) null else purJson.getString("nickname")
+                        val isDraft = purJson.getBoolean("isDraft")
+                        val invoiceUrl = if (purJson.isNull("invoiceUrl")) null else purJson.getString("invoiceUrl")
+
+                        val mappedAccountId = accountIdMap[backupAccountId] ?: continue
+
+                        val existing = localPurchases.find { it.date == date && it.store.equals(store, ignoreCase = true) && it.accountId == mappedAccountId }
+                        if (existing != null) {
+                            dao.deletePurchaseById(existing.id)
+                        }
+
+                        val newId = dao.insertPurchase(com.ajudaqui.pagueiquanto.model.Purchase(
+                            accountId = mappedAccountId,
+                            date = date,
+                            store = store,
+                            nickname = nickname,
+                            isDraft = isDraft,
+                            invoiceUrl = invoiceUrl
+                        ))
+                        purchaseIdMap[backupId] = newId
+                    }
+
+                    // 4. Inserir PriceRecords correspondentes
+                    for (i in 0 until priceRecordsArray.length()) {
+                        val prJson = priceRecordsArray.getJSONObject(i)
+                        val backupProductId = prJson.getLong("productId")
+                        val backupPurchaseId = prJson.getLong("purchaseId")
+                        val unitPrice = prJson.getDouble("unitPrice")
+                        val quantity = prJson.getDouble("quantity")
+
+                        val mappedProductId = productIdMap[backupProductId] ?: continue
+                        val mappedPurchaseId = purchaseIdMap[backupPurchaseId] ?: continue
+
+                        dao.insertRecord(com.ajudaqui.pagueiquanto.model.PriceRecord(
+                            productId = mappedProductId,
+                            purchaseId = mappedPurchaseId,
+                            unitPrice = unitPrice,
+                            quantity = quantity
+                        ))
+                    }
+                }
+            }
+            notifyDatabaseChanged()
+        }
+    }
+
+    fun hashPassword(password: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(password.toByteArray(Charsets.UTF_8))
+        return hash.joinToString("") { "%02x".format(it) }
     }
 }

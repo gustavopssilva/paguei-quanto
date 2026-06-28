@@ -42,6 +42,9 @@ import com.ajudaqui.pagueiquanto.viewmodel.PurchaseItemState
 import com.ajudaqui.pagueiquanto.viewmodel.ShoppingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.launch
+import com.ajudaqui.pagueiquanto.PagueiQuantoApplication
 
 // --- COMPONENTES BASE ---
 
@@ -447,16 +450,151 @@ fun exportDatabase(context: android.content.Context) {
 @Composable
 fun ProfileScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val app = context.applicationContext as PagueiQuantoApplication
+    val repository = app.repository
+
+    var hasCredentials by remember { mutableStateOf(repository.hasBackupCredentials()) }
+    var configuredEmail by remember { mutableStateOf(repository.getBackupEmail() ?: "") }
+
+    var showConfigDialog by remember { mutableStateOf(false) }
+    var showRestoreDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Meu Perfil") }) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), border = BorderStroke(1.dp, Slate100)) {
-                Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(64.dp).background(MaterialTheme.colorScheme.primary, CircleShape), contentAlignment = Alignment.Center) { Text("U", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 24.sp) }
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, Slate100)
+            ) {
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (configuredEmail.isNotEmpty()) configuredEmail.take(1).uppercase() else "U",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                    }
                     Spacer(Modifier.width(16.dp))
-                    Column { Text("Usuário de Teste", fontWeight = FontWeight.Bold, fontSize = 18.sp); Text("usuario@email.com", color = Slate500) }
+                    Column {
+                        Text("Usuário", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(
+                            text = if (configuredEmail.isNotEmpty()) configuredEmail else "Sem backup em nuvem",
+                            color = Slate500
+                        )
+                    }
                 }
             }
-            
+
+            // Seção de Nuvem
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, Slate100),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "Sincronização em Nuvem",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+
+                    if (!hasCredentials) {
+                        Text(
+                            "Ative o backup automático diário para proteger seus dados em caso de perda do aparelho.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate500
+                        )
+                        Button(
+                            onClick = { showConfigDialog = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Icon(Icons.Default.CloudQueue, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Configurar Backup")
+                        }
+                    } else {
+                        Text(
+                            "O backup diário automático está ativado para esta conta.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Slate500
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showConfigDialog = true },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Alterar Conta")
+                            }
+
+                            Button(
+                                onClick = {
+                                    isLoading = true
+                                    coroutineScope.launch {
+                                        try {
+                                            val data = repository.exportAllData()
+                                            val compressed = repository.compress(data)
+                                            repository.sendBackupToLambda(compressed)
+                                            repository.markBackupSynced()
+                                            android.widget.Toast.makeText(context, "Backup realizado com sucesso!", android.widget.Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            android.widget.Toast.makeText(context, "Erro ao fazer backup: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                        } finally {
+                                            isLoading = false
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = !isLoading,
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                if (isLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Fazer Backup")
+                                }
+                            }
+                        }
+                    }
+
+                    Divider(color = Slate100, thickness = 0.5.dp)
+
+                    OutlinedButton(
+                        onClick = { showRestoreDialog = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.SettingsBackupRestore, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Restaurar Dados da Nuvem")
+                    }
+                }
+            }
+
             Button(
                 onClick = { exportDatabase(context) },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
@@ -467,6 +605,157 @@ fun ProfileScreen() {
                 Text("Exportar Banco de Dados (SQLite)", fontWeight = FontWeight.Bold)
             }
         }
+    }
+
+    // Dialog de Configuração de Backup
+    if (showConfigDialog) {
+        var emailInput by remember { mutableStateOf(configuredEmail) }
+        var passwordInput by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showConfigDialog = false },
+            title = { Text("Configurar Backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Informe o e-mail e uma senha de proteção para ativar e gerenciar seus backups.")
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it },
+                        label = { Text("E-mail") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                    )
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Senha (mínimo 6 caracteres)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                    )
+                    if (errorText.isNotEmpty()) {
+                        Text(errorText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(emailInput).matches()) {
+                            errorText = "E-mail inválido!"
+                            return@Button
+                        }
+                        if (passwordInput.length < 6) {
+                            errorText = "A senha deve ter no mínimo 6 caracteres!"
+                            return@Button
+                        }
+                        val hash = repository.hashPassword(passwordInput)
+                        repository.saveBackupCredentials(emailInput, hash)
+                        configuredEmail = emailInput
+                        hasCredentials = true
+                        showConfigDialog = false
+                        android.widget.Toast.makeText(context, "Configurações salvas!", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Salvar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfigDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Dialog de Restauração de Dados
+    if (showRestoreDialog) {
+        var emailInput by remember { mutableStateOf(configuredEmail) }
+        var passwordInput by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf("") }
+        var isRestoring by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { if (!isRestoring) showRestoreDialog = false },
+            title = { Text("Restaurar Dados") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("ATENÇÃO: Este processo irá trazer seus dados da nuvem. Dados com conflito local serão substituídos.")
+                    OutlinedTextField(
+                        value = emailInput,
+                        onValueChange = { emailInput = it },
+                        label = { Text("E-mail do Backup") },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isRestoring
+                    )
+                    OutlinedTextField(
+                        value = passwordInput,
+                        onValueChange = { passwordInput = it },
+                        label = { Text("Senha") },
+                        modifier = Modifier.fillMaxWidth(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        enabled = !isRestoring
+                    )
+                    if (errorText.isNotEmpty()) {
+                        Text(errorText, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
+                    if (isRestoring) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Restaurando e mesclando banco de dados...")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    enabled = !isRestoring,
+                    onClick = {
+                        if (emailInput.isBlank() || passwordInput.isBlank()) {
+                            errorText = "E-mail e senha são obrigatórios!"
+                            return@Button
+                        }
+                        isRestoring = true
+                        val hash = repository.hashPassword(passwordInput)
+                        // Define temporariamente para fazer a requisição de restore
+                        repository.saveBackupCredentials(emailInput, hash)
+
+                        coroutineScope.launch {
+                            try {
+                                val backupJson = repository.fetchBackupFromLambda()
+                                if (backupJson != null) {
+                                    repository.restoreAndMergeBackup(backupJson)
+                                    configuredEmail = emailInput
+                                    hasCredentials = true
+                                    showRestoreDialog = false
+                                    android.widget.Toast.makeText(context, "Dados restaurados e mesclados com sucesso!", android.widget.Toast.LENGTH_LONG).show()
+                                } else {
+                                    errorText = "Nenhum backup encontrado para este e-mail!"
+                                }
+                            } catch (e: Exception) {
+                                errorText = "Falha ao restaurar: ${e.message}"
+                            } finally {
+                                isRestoring = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Restaurar")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !isRestoring,
+                    onClick = { showRestoreDialog = false }
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }
 
