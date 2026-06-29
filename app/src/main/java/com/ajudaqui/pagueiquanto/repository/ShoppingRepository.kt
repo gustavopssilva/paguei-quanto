@@ -43,7 +43,7 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
                     val purchase = purchaseMap[record.purchaseId]
                     val dateStr = purchase?.let {
                         SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date(it.date))
-                    } ?: "2026-06-10"
+                    } ?: "1970-01-01"
                     PriceRecordState(
                         id = record.id.toString(),
                         date = dateStr,
@@ -471,10 +471,12 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
                 conn.setConnectTimeout(15000)
                 conn.setReadTimeout(15000)
 
+// Aqui ele começa a enviar a requisição
                 conn.outputStream.use { os ->
                     os.write(bytes)
                 }
 
+// aqui ele valida que a requisição foi enviada
                 val responseCode = conn.responseCode
                 if (responseCode != 200) {
                     throw Exception("Failed to send backup: HTTP $responseCode")
