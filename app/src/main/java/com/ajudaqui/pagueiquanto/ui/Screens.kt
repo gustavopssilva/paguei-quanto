@@ -43,6 +43,7 @@ import com.ajudaqui.pagueiquanto.viewmodel.ShoppingViewModel
 import java.text.SimpleDateFormat
 import java.util.Locale
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import kotlinx.coroutines.launch
 import com.ajudaqui.pagueiquanto.PagueiQuantoApplication
 
@@ -229,15 +230,6 @@ fun ReminderListCard(account: AccountState, onClick: () -> Unit, onLongClick: ((
                     Text(if (account.lastPurchaseDate == null) "Sem histórico" else "Em breve", modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = if (account.lastPurchaseDate == null) Slate500 else Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
                 }
             }
-            Spacer(Modifier.height(12.dp)); Divider(thickness = 0.5.dp, color = Slate100); Spacer(Modifier.height(12.dp))
-            val count = if (account.products.isEmpty()) 0 else 3
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(if (account.nextPurchasePrediction != null) "Previsão: ${account.nextPurchasePrediction}" else "Adicione itens para lembretes", style = MaterialTheme.typography.bodySmall, color = if (account.nextPurchasePrediction != null) Slate900 else Slate500, fontWeight = FontWeight.Bold)
-                    Text(if (count > 0) "$count itens costumam acabar este período" else "Nenhum item previsto agora", style = MaterialTheme.typography.labelSmall, color = Slate500)
-                }
-            }
-            if (account.predictionProgress > 0) { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = account.predictionProgress, modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape), color = if (account.predictionProgress > 0.8f) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary, trackColor = Slate100) }
         }
     }
 }
@@ -274,31 +266,7 @@ fun CategoryHistoryScreen(
 
     Scaffold(topBar = { PagueiQuantoTopBar(title = account.name, subtitle = "Histórico de compras") }) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            // Banner de Previsão na Categoria
-            Surface(
-                modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
-            ) {
-                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Outlined.EventRepeat, null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("Previsão de Reposição", style = MaterialTheme.typography.labelSmall, color = Slate500, fontWeight = FontWeight.Bold)
-                        Text(account.nextPurchasePrediction ?: "Sem previsão disponível", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                        if (account.predictionProgress > 0) {
-                            Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = account.predictionProgress,
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = Color.White
-                            )
-                        }
-                    }
-                }
-            }
+
 
             Button(onClick = onNewPurchase, modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp)) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Iniciar nova compra", fontWeight = FontWeight.Bold) }
             
@@ -459,6 +427,7 @@ fun ProfileScreen() {
 
     var showConfigDialog by remember { mutableStateOf(false) }
     var showRestoreDialog by remember { mutableStateOf(false) }
+    var showBackupConfirmDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
 
     Scaffold(topBar = { PagueiQuantoTopBar(title = "Meu Perfil") }) { padding ->
@@ -552,20 +521,7 @@ fun ProfileScreen() {
 
                             Button(
                                 onClick = {
-                                    isLoading = true
-                                    coroutineScope.launch {
-                                        try {
-                                            val data = repository.exportAllData()
-                                            val compressed = repository.compress(data)
-                                            repository.sendBackupToLambda(compressed)
-                                            repository.markBackupSynced()
-                                            android.widget.Toast.makeText(context, "Backup realizado com sucesso!", android.widget.Toast.LENGTH_SHORT).show()
-                                        } catch (e: Exception) {
-                                            android.widget.Toast.makeText(context, "Erro ao fazer backup: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
-                                        } finally {
-                                            isLoading = false
-                                        }
-                                    }
+                                    showBackupConfirmDialog = true
                                 },
                                 modifier = Modifier.weight(1f),
                                 enabled = !isLoading,
@@ -611,6 +567,7 @@ fun ProfileScreen() {
     if (showConfigDialog) {
         var emailInput by remember { mutableStateOf(configuredEmail) }
         var passwordInput by remember { mutableStateOf("") }
+        var passwordVisible by remember { mutableStateOf(false) }
         var errorText by remember { mutableStateOf("") }
 
         AlertDialog(
@@ -631,7 +588,15 @@ fun ProfileScreen() {
                         onValueChange = { passwordInput = it },
                         label = { Text("Senha (mínimo 6 caracteres)") },
                         modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = if (passwordVisible) "Ocultar" else "Mostrar"
+                                )
+                            }
+                        },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
                     )
                     if (errorText.isNotEmpty()) {
@@ -673,6 +638,7 @@ fun ProfileScreen() {
     if (showRestoreDialog) {
         var emailInput by remember { mutableStateOf(configuredEmail) }
         var passwordInput by remember { mutableStateOf("") }
+        var passwordVisible by remember { mutableStateOf(false) }
         var errorText by remember { mutableStateOf("") }
         var isRestoring by remember { mutableStateOf(false) }
 
@@ -694,7 +660,15 @@ fun ProfileScreen() {
                         onValueChange = { passwordInput = it },
                         label = { Text("Senha") },
                         modifier = Modifier.fillMaxWidth(),
-                        visualTransformation = PasswordVisualTransformation(),
+                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { passwordVisible = !passwordVisible }, enabled = !isRestoring) {
+                                Icon(
+                                    imageVector = if (passwordVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
+                                    contentDescription = if (passwordVisible) "Ocultar" else "Mostrar"
+                                )
+                            }
+                        },
                         enabled = !isRestoring
                     )
                     if (errorText.isNotEmpty()) {
@@ -702,8 +676,8 @@ fun ProfileScreen() {
                     }
                     if (isRestoring) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                             verticalAlignment = Alignment.CenterVertically,
+                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp))
                             Text("Restaurando e mesclando banco de dados...")
@@ -752,6 +726,42 @@ fun ProfileScreen() {
                     enabled = !isRestoring,
                     onClick = { showRestoreDialog = false }
                 ) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    if (showBackupConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackupConfirmDialog = false },
+            title = { Text("Fazer Backup") },
+            text = { Text("Deseja realmente realizar o backup manual dos seus dados para a nuvem?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showBackupConfirmDialog = false
+                        isLoading = true
+                        coroutineScope.launch {
+                            try {
+                                val data = repository.exportAllData()
+                                val compressed = repository.compress(data)
+                                repository.sendBackupToLambda(compressed)
+                                repository.markBackupSynced()
+                                android.widget.Toast.makeText(context, "Backup realizado com sucesso!", android.widget.Toast.LENGTH_SHORT).show()
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, "Erro ao fazer backup: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            } finally {
+                                isLoading = false
+                            }
+                        }
+                    }
+                ) {
+                    Text("Sim, fazer backup")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBackupConfirmDialog = false }) {
                     Text("Cancelar")
                 }
             }
@@ -922,7 +932,7 @@ fun PurchaseDetailScreen(
                         onValueChange = { qtyInput = it },
                         label = { Text("Quantidade") },
                         modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
                     )
                 }
             },
@@ -963,7 +973,7 @@ fun PurchaseDetailScreen(
                     OutlinedTextField(value = unit, onValueChange = { unit = it }, label = { Text("Unidade (ex: un, kg, L)") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = brand, onValueChange = { brand = it }, label = { Text("Marca") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(value = priceInput, onValueChange = { priceInput = it }, label = { Text("Valor Unitário") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    OutlinedTextField(value = qtyInput, onValueChange = { qtyInput = it }, label = { Text("Quantidade") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    OutlinedTextField(value = qtyInput, onValueChange = { qtyInput = it }, label = { Text("Quantidade") }, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 }
             },
             confirmButton = {
@@ -1017,7 +1027,7 @@ fun ProductHistoryScreen(product: ProductState, onBack: () -> Unit) {
 @Composable
 fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
     val items by viewModel.items.collectAsState()
-    val total = items.sumOf { (it.actualQty.toDoubleOrNull() ?: 0.0) * (it.currentPrice.toDoubleOrNull() ?: 0.0) }
+    val total = items.sumOf { (it.actualQty.replace(",", ".").toDoubleOrNull() ?: 0.0) * (it.currentPrice.replace(",", ".").toDoubleOrNull() ?: 0.0) }
     var showAddItemDialog by remember { mutableStateOf(false) }
     var nickname by remember { mutableStateOf("") }
     var invoiceUrl by remember { mutableStateOf<String?>(null) }
@@ -1141,7 +1151,7 @@ fun PurchaseChecklistItem(item: PurchaseItemState, onToggleEdit: () -> Unit, onU
                 Surface(modifier = Modifier.size(40.dp), color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) { Box(contentAlignment = Alignment.Center) { Text(item.productName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Slate500) } }
                 Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(item.productName + if (item.brand.isNotBlank()) " (${item.brand})" else "", fontWeight = FontWeight.Bold); Text("Último: R$ ${String.format("%.2f", item.lastUnitPrice ?: 0.0).replace(".", ",")} (${item.lastQuantity ?: "--"}${item.unit})", style = MaterialTheme.typography.bodySmall, color = Slate500) }
                 if (item.actualQty.isNotEmpty() && item.currentPrice.isNotEmpty()) {
-                    val currentVal = (item.actualQty.toDoubleOrNull() ?: 0.0) * (item.currentPrice.toDoubleOrNull() ?: 0.0)
+                    val currentVal = (item.actualQty.replace(",", ".").toDoubleOrNull() ?: 0.0) * (item.currentPrice.replace(",", ".").toDoubleOrNull() ?: 0.0)
                     Column(horizontalAlignment = Alignment.End) { Text("R$ ${String.format("%.2f", currentVal).replace(".", ",")}", fontWeight = FontWeight.Bold); Text("${item.actualQty}${item.unit}", style = MaterialTheme.typography.labelSmall, color = Slate500) }
                 }
                 Spacer(Modifier.width(8.dp)); Icon(Icons.Default.ChevronRight, null, modifier = Modifier.size(16.dp).rotate(if (isEditing) 90f else 0f), tint = MaterialTheme.colorScheme.outline)
@@ -1150,8 +1160,8 @@ fun PurchaseChecklistItem(item: PurchaseItemState, onToggleEdit: () -> Unit, onU
                 Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(16.dp)) {
                     OutlinedTextField(value = item.brand, onValueChange = { onUpdate(item.currentPrice, item.actualQty, null, it) }, modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp), shape = RoundedCornerShape(12.dp), label = { Text("MARCA") })
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f)) { Text("QTD PRETENDIDA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.requestedQty.toString(), onValueChange = { onUpdate(item.currentPrice, item.actualQty, it, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
-                        Column(Modifier.weight(1f)) { Text("QTD COMPRADA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.actualQty, onValueChange = { onUpdate(item.currentPrice, it, null, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
+                        Column(Modifier.weight(1f)) { Text("QTD PRETENDIDA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.requestedQty.toString(), onValueChange = { onUpdate(item.currentPrice, item.actualQty, it, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
+                        Column(Modifier.weight(1f)) { Text("QTD COMPRADA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); OutlinedTextField(value = item.actualQty, onValueChange = { onUpdate(item.currentPrice, it, null, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)) }
                     }
                     Spacer(Modifier.height(12.dp))
                     Column { Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Text("VALOR UNITÁRIO ATUAL", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Slate500); PriceVariationBadge(delta = delta) }; OutlinedTextField(value = item.currentPrice, onValueChange = { onUpdate(it, item.actualQty, null, null) }, modifier = Modifier.fillMaxWidth().padding(top = 4.dp), shape = RoundedCornerShape(12.dp), placeholder = { Text("R$ 0,00") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), textStyle = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)) }

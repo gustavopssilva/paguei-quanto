@@ -211,7 +211,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
                 it.copy(
                     currentPrice = price, 
                     actualQty = qty,
-                    requestedQty = reqQty?.toDoubleOrNull() ?: it.requestedQty,
+                    requestedQty = reqQty?.replace(",", ".")?.toDoubleOrNull() ?: it.requestedQty,
                     brand = brand ?: it.brand
                 )
             } else it
@@ -231,7 +231,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
     }
 
     fun calculateDelta(item: PurchaseItemState): Double? {
-        val current = item.currentPrice.toDoubleOrNull() ?: return null
+        val current = item.currentPrice.replace(",", ".").toDoubleOrNull() ?: return null
         val last = item.lastUnitPrice ?: return null
         if (last == 0.0) return null
         return ((current - last) / last) * 100
