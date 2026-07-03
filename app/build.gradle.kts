@@ -53,6 +53,10 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/NOTICE.md"
+            excludes += "/META-INF/LICENSE.md"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/NOTICE"
         }
     }
 }
@@ -89,4 +93,14 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // ajudaqui-fiscal — lib de parse de NFC-e (via mavenLocal)
+    implementation("com.github.gustavopssilva:ajudaqui-fiscal:1.0.0")
+
+    // Dependências transitivas da ajudaqui-fiscal
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.17.0")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.0")
+    implementation("org.jsoup:jsoup:1.17.2")
+    // SLF4J: usar binding nop no Android (sem console logging da lib)
+    implementation("org.slf4j:slf4j-nop:2.0.12")
 }

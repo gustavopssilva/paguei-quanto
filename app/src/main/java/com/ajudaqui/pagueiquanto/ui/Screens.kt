@@ -1031,6 +1031,7 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
     var showAddItemDialog by remember { mutableStateOf(false) }
     var nickname by remember { mutableStateOf("") }
     var invoiceUrl by remember { mutableStateOf<String?>(null) }
+    var isImportingInvoice by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
     val scanner = remember { GmsBarcodeScanning.getClient(context) }
     // Ao sair sem finalizar, grava o rascunho imediatamente para não perder edições recentes.
@@ -1048,23 +1049,62 @@ fun NewPurchaseScreen(viewModel: ShoppingViewModel, onBack: () -> Unit) {
                         modifier = Modifier.weight(1f), 
                         shape = RoundedCornerShape(12.dp)
                     )
-                    IconButton(
-                        onClick = {
-                            scanner.startScan()
-                                .addOnSuccessListener { barcode ->
-                                    val rawValue = barcode.rawValue
-                                    if (!rawValue.isNullOrBlank()) {
-                                        invoiceUrl = rawValue
-                                        android.widget.Toast.makeText(context, "QR Code Lido com Sucesso!", android.widget.Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                                .addOnFailureListener { e ->
-                                    android.widget.Toast.makeText(context, "Erro ao escanear: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                        },
-                        modifier = Modifier.size(56.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(
+                                if (isImportingInvoice) MaterialTheme.colorScheme.surfaceVariant
+                                else if (!invoiceUrl.isNullOrBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                else MaterialTheme.colorScheme.primaryContainer,
+                                RoundedCornerShape(12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.QrCodeScanner, contentDescription = "Escanear Nota Fiscal", tint = MaterialTheme.colorScheme.primary)
+                        if (isImportingInvoice) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(24.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    scanner.startScan()
+                                        .addOnSuccessListener { barcode ->
+                                            val rawValue = barcode.rawValue
+                                            if (!rawValue.isNullOrBlank()) {
+                                                invoiceUrl = rawValue
+                                                isImportingInvoice = true
+                                                viewModel.importFromFiscalInvoice(rawValue) { success, message ->
+                                                    isImportingInvoice = false
+                                                    if (success) {
+                                                        // Preencher nickname com o nome do estabelecimento se estiver vazio
+                                                        if (nickname.isBlank()) {
+                                                            val storeLine = message.lines().firstOrNull { it.isNotBlank() }?.removePrefix("✅ ")?.trim()
+                                                            if (!storeLine.isNullOrBlank() && !storeLine.contains("item")) {
+                                                                nickname = storeLine
+                                                            }
+                                                        }
+                                                        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        android.widget.Toast.makeText(context, "⚠️ $message", android.widget.Toast.LENGTH_LONG).show()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        .addOnFailureListener { e ->
+                                            android.widget.Toast.makeText(context, "Erro ao escanear: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+                                        }
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (!invoiceUrl.isNullOrBlank()) Icons.Default.QrCode else Icons.Default.QrCodeScanner,
+                                    contentDescription = "Escanear Nota Fiscal",
+                                    tint = if (!invoiceUrl.isNullOrBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
                 Surface(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), shape = RoundedCornerShape(16.dp)) {

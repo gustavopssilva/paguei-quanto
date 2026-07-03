@@ -8,6 +8,14 @@ import com.ajudaqui.pagueiquanto.model.PriceRecordState
 import com.ajudaqui.pagueiquanto.model.ProductState
 import com.ajudaqui.pagueiquanto.repository.ShoppingRepository
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.ajudaqui.service.FiscalParseService
+import com.ajudaqui.model.UrlInput
+import java.net.UnknownHostException
+import java.net.SocketTimeoutException
+import java.net.SocketException
+import java.io.IOException
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -235,6 +243,90 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
         val last = item.lastUnitPrice ?: return null
         if (last == 0.0) return null
         return ((current - last) / last) * 100
+    }
+
+    /**
+     * Chama o serviço local da ajudaqui-fiscal (test-app na porta 8080) com a URL
+     * da SEFAZ lida pelo QR Code, parseia o JSON retornado e adiciona os itens
+     * da nota fiscal à lista de itens da compra em andamento.
+     *
+     * O preço unitário é calculado como totalValue/quantity quando unitValue for "0",
+     * pois a lib frequentemente retorna zero nesse campo.
+     *
+     * @param invoiceUrl URL da SEFAZ obtida pelo QR Code
+     * @param onResult   Callback com (sucesso: Boolean, mensagem: String)
+     */
+    fun importFromFiscalInvoice(invoiceUrl: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    FiscalParseService().parse(UrlInput(invoiceUrl))
+                }
+
+                if (!result.isSuccess) {
+                    onResult(false, result.error ?: "Falha ao processar a nota")
+                    return@launch
+                }
+
+                val doc   = result.data
+                val items = doc?.items
+                if (items.isNullOrEmpty()) {
+                    onResult(false, "Nenhum item encontrado na nota")
+                    return@launch
+                }
+
+                val businessName = doc.issuer?.businessName?.trim() ?: ""
+
+                val importedItems = items.mapIndexed { i, item ->
+                    val description = item.description?.trim() ?: "Item $i"
+                    val unit        = item.unit?.ifBlank { "un" } ?: "un"
+                    val qty         = item.quantity?.replace(",", ".")?.toDoubleOrNull() ?: 1.0
+                    val unitVal     = item.unitValue?.replace(",", ".")?.toDoubleOrNull() ?: 0.0
+                    val totalVal    = item.totalValue?.replace(",", ".")?.toDoubleOrNull() ?: 0.0
+
+                    // Calcular preço unitário: usar unitValue se válido, senão dividir totalValue pela qty
+                    val unitPrice = when {
+                        unitVal > 0.0 -> unitVal
+                        qty > 0.0     -> totalVal / qty
+                        else          -> totalVal
+                    }
+
+                    PurchaseItemState(
+                        productId     = "fiscal_${System.currentTimeMillis()}_$i",
+                        productName   = description,
+                        unit          = unit,
+                        brand         = "",
+                        lastUnitPrice = null,
+                        lastQuantity  = null,
+                        lastDate      = null,
+                        requestedQty  = qty,
+                        actualQty     = qty.toBigDecimal().stripTrailingZeros().toPlainString(),
+                        currentPrice  = String.format("%.2f", unitPrice).replace(",", "."),
+                        isEditing     = false
+                    )
+                }
+
+                // Adicionar itens importados à lista existente (preserva itens já lançados manualmente)
+                _items.value = _items.value + importedItems
+                saveDraftToDb()
+
+                val storeName = businessName.ifBlank { "Nota Fiscal" }
+                val warnings  = result.warnings?.joinToString("; ") ?: ""
+                val msg = "✅ $storeName\n${importedItems.size} item(ns) importado(s)"
+                onResult(true, if (warnings.isNotBlank()) "$msg\n⚠️ $warnings" else msg)
+
+            } catch (e: UnknownHostException) {
+                onResult(false, "Sem conexão com a internet.\nVerifique sua rede e tente novamente.")
+            } catch (e: SocketException) {
+                onResult(false, "Sem conexão com a internet.\nVerifique sua rede e tente novamente.")
+            } catch (e: SocketTimeoutException) {
+                onResult(false, "A consulta à SEFAZ demorou demais.\nVerifique sua conexão e tente novamente.")
+            } catch (e: IOException) {
+                onResult(false, "Falha de rede ao consultar a nota.\nVerifique sua conexão e tente novamente.")
+            } catch (e: Exception) {
+                onResult(false, "Não foi possível processar a nota.\n${e.message ?: "Erro desconhecido"}")
+            }
+        }
     }
 }
 
