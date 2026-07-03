@@ -26,3 +26,4 @@ node_modules/
 .vercel/
 .env*.local
 .aider*
+paguei-quanto-release.jks

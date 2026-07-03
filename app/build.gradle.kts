@@ -21,10 +21,20 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("../paguei-quanto-release.jks")
+            storePassword = "paguei2025"
+            keyAlias = "paguei-quanto"
+            keyPassword = "paguei2025"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
