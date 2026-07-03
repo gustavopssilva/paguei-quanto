@@ -24,10 +24,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        val db = Room.databaseBuilder(applicationContext, AppDatabase::class.java, "pagueiquanto-db")
-            .fallbackToDestructiveMigration()
-            .build()
-        val repository = ShoppingRepository(db.shoppingDao(), applicationContext)
+        val app = application as PagueiQuantoApplication
+        val repository = app.repository
         val factory = ShoppingViewModelFactory(repository)
         val viewModel: ShoppingViewModel by viewModels { factory }
         

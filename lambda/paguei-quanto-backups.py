@@ -13,7 +13,7 @@ def get_email_hash(email):
 
 def lambda_handler(event, context):
     # Identifica o caminho da requisição HTTP (configurado via API Gateway)
-    path = event.get("path", "")
+    path = event.get("rawPath", "")
     headers = event.get("headers", {})
     
     # Extrai as credenciais enviadas pelo App nos Headers
@@ -89,7 +89,7 @@ def lambda_handler(event, context):
                 }
                 
             except botocore.exceptions.ClientError as e:
-                if e.response['Error']['Code'] == '404':
+                if e.response['Error']['Code'] in ('404', 'NoSuchKey'):
                     return build_response(404, "Nenhum backup encontrado para este e-mail.")
                 raise e
                 

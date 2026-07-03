@@ -19,6 +19,7 @@ import org.json.JSONArray
 import java.io.ByteArrayOutputStream
 import java.util.zip.GZIPOutputStream
 import com.ajudaqui.pagueiquanto.PagueiQuantoApplication
+import androidx.room.withTransaction
 
 class ShoppingRepository(private val dao: ShoppingDao, private val context: Context) {
 
@@ -459,7 +460,7 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
             val email = getBackupEmail() ?: throw Exception("No email configured")
             val auth = getBackupPasswordHash() ?: throw Exception("No password hash configured")
 
-            val url = java.net.URL("https://backup.pagueiquanto.com/backup")
+            val url = java.net.URL("https://m7fgm4gmfc.execute-api.us-east-1.amazonaws.com/prod/backup")
             val conn = url.openConnection() as java.net.HttpURLConnection
             try {
                 conn.doOutput = true
@@ -492,12 +493,13 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
             val email = getBackupEmail() ?: throw Exception("No email configured")
             val auth = getBackupPasswordHash() ?: throw Exception("No password hash configured")
 
-            val url = java.net.URL("https://backup.pagueiquanto.com/restore")
+            val url = java.net.URL("https://m7fgm4gmfc.execute-api.us-east-1.amazonaws.com/prod/restore")
             val conn = url.openConnection() as java.net.HttpURLConnection
             try {
-                conn.requestMethod = "POST"
+                conn.requestMethod = "GET"
                 conn.setRequestProperty("X-Backup-Email", email)
                 conn.setRequestProperty("X-Backup-Auth", auth)
+                conn.setRequestProperty("Accept-Encoding", "gzip")
                 conn.setConnectTimeout(15000)
                 conn.setReadTimeout(15000)
 
@@ -534,108 +536,114 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
             val purchasesArray = dataObj.getJSONArray("purchases")
             val priceRecordsArray = dataObj.getJSONArray("price_records")
 
-            val db = (context.applicationContext as PagueiQuantoApplication).database
+            val app = context.applicationContext as? PagueiQuantoApplication
+            val db = app?.database
 
-            // Executa em transação para consistência
-            db.runInTransaction {
-                kotlinx.coroutines.runBlocking {
-                    val localAccounts = dao.getAllAccounts().first()
-                    val localProducts = dao.getAllProducts().first()
-                    val localPurchases = dao.getAllPurchases().first()
+            val executeMerge = suspend {
+                val localAccounts = dao.getAllAccounts().first()
+                val localProducts = dao.getAllProducts().first()
+                val localPurchases = dao.getAllPurchases().first()
 
-                    val accountIdMap = mutableMapOf<Long, Long>()
-                    val productIdMap = mutableMapOf<Long, Long>()
-                    val purchaseIdMap = mutableMapOf<Long, Long>()
+                val accountIdMap = mutableMapOf<Long, Long>()
+                val productIdMap = mutableMapOf<Long, Long>()
+                val purchaseIdMap = mutableMapOf<Long, Long>()
 
-                    // 1. Mesclar Accounts
-                    for (i in 0 until accountsArray.length()) {
-                        val accJson = accountsArray.getJSONObject(i)
-                        val backupId = accJson.getLong("id")
-                        val name = accJson.getString("name")
-                        val icon = accJson.getString("icon")
+                // 1. Mesclar Accounts
+                for (i in 0 until accountsArray.length()) {
+                    val accJson = accountsArray.getJSONObject(i)
+                    val backupId = accJson.getLong("id")
+                    val name = accJson.getString("name")
+                    val icon = accJson.getString("icon")
 
-                        val existing = localAccounts.find { it.name.equals(name, ignoreCase = true) }
-                        if (existing != null) {
-                            accountIdMap[backupId] = existing.id
-                        } else {
-                            val newId = dao.insertAccount(com.ajudaqui.pagueiquanto.model.Account(name = name, icon = icon))
-                            accountIdMap[backupId] = newId
-                        }
-                    }
-
-                    // 2. Mesclar Products
-                    for (i in 0 until productsArray.length()) {
-                        val prodJson = productsArray.getJSONObject(i)
-                        val backupId = prodJson.getLong("id")
-                        val name = prodJson.getString("name")
-                        val unit = prodJson.getString("unit")
-                        val backupAccountId = prodJson.getLong("accountId")
-                        val brand = if (prodJson.isNull("brand")) null else prodJson.getString("brand")
-
-                        val mappedAccountId = accountIdMap[backupAccountId] ?: continue
-
-                        val existing = localProducts.find { it.name.equals(name, ignoreCase = true) && it.accountId == mappedAccountId }
-                        if (existing != null) {
-                            productIdMap[backupId] = existing.id
-                        } else {
-                            val newId = dao.insertProduct(com.ajudaqui.pagueiquanto.model.Product(
-                                name = name,
-                                unit = unit,
-                                accountId = mappedAccountId,
-                                brand = brand
-                            ))
-                            productIdMap[backupId] = newId
-                        }
-                    }
-
-                    // 3. Mesclar Purchases (Sobrescrever em caso de conflitos)
-                    for (i in 0 until purchasesArray.length()) {
-                        val purJson = purchasesArray.getJSONObject(i)
-                        val backupId = purJson.getLong("id")
-                        val backupAccountId = purJson.getLong("accountId")
-                        val date = purJson.getLong("date")
-                        val store = purJson.getString("store")
-                        val nickname = if (purJson.isNull("nickname")) null else purJson.getString("nickname")
-                        val isDraft = purJson.getBoolean("isDraft")
-                        val invoiceUrl = if (purJson.isNull("invoiceUrl")) null else purJson.getString("invoiceUrl")
-
-                        val mappedAccountId = accountIdMap[backupAccountId] ?: continue
-
-                        val existing = localPurchases.find { it.date == date && it.store.equals(store, ignoreCase = true) && it.accountId == mappedAccountId }
-                        if (existing != null) {
-                            dao.deletePurchaseById(existing.id)
-                        }
-
-                        val newId = dao.insertPurchase(com.ajudaqui.pagueiquanto.model.Purchase(
-                            accountId = mappedAccountId,
-                            date = date,
-                            store = store,
-                            nickname = nickname,
-                            isDraft = isDraft,
-                            invoiceUrl = invoiceUrl
-                        ))
-                        purchaseIdMap[backupId] = newId
-                    }
-
-                    // 4. Inserir PriceRecords correspondentes
-                    for (i in 0 until priceRecordsArray.length()) {
-                        val prJson = priceRecordsArray.getJSONObject(i)
-                        val backupProductId = prJson.getLong("productId")
-                        val backupPurchaseId = prJson.getLong("purchaseId")
-                        val unitPrice = prJson.getDouble("unitPrice")
-                        val quantity = prJson.getDouble("quantity")
-
-                        val mappedProductId = productIdMap[backupProductId] ?: continue
-                        val mappedPurchaseId = purchaseIdMap[backupPurchaseId] ?: continue
-
-                        dao.insertRecord(com.ajudaqui.pagueiquanto.model.PriceRecord(
-                            productId = mappedProductId,
-                            purchaseId = mappedPurchaseId,
-                            unitPrice = unitPrice,
-                            quantity = quantity
-                        ))
+                    val existing = localAccounts.find { it.name.equals(name, ignoreCase = true) }
+                    if (existing != null) {
+                        accountIdMap[backupId] = existing.id
+                    } else {
+                        val newId = dao.insertAccount(com.ajudaqui.pagueiquanto.model.Account(name = name, icon = icon))
+                        accountIdMap[backupId] = newId
                     }
                 }
+
+                // 2. Mesclar Products
+                for (i in 0 until productsArray.length()) {
+                    val prodJson = productsArray.getJSONObject(i)
+                    val backupId = prodJson.getLong("id")
+                    val name = prodJson.getString("name")
+                    val unit = prodJson.getString("unit")
+                    val backupAccountId = prodJson.getLong("accountId")
+                    val brand = if (prodJson.isNull("brand")) null else prodJson.getString("brand")
+
+                    val mappedAccountId = accountIdMap[backupAccountId] ?: continue
+
+                    val existing = localProducts.find { it.name.equals(name, ignoreCase = true) && it.accountId == mappedAccountId }
+                    if (existing != null) {
+                        productIdMap[backupId] = existing.id
+                    } else {
+                        val newId = dao.insertProduct(com.ajudaqui.pagueiquanto.model.Product(
+                            name = name,
+                            unit = unit,
+                            accountId = mappedAccountId,
+                            brand = brand
+                        ))
+                        productIdMap[backupId] = newId
+                    }
+                }
+
+                // 3. Mesclar Purchases (Sobrescrever em caso de conflitos)
+                for (i in 0 until purchasesArray.length()) {
+                    val purJson = purchasesArray.getJSONObject(i)
+                    val backupId = purJson.getLong("id")
+                    val backupAccountId = purJson.getLong("accountId")
+                    val date = purJson.getLong("date")
+                    val store = purJson.getString("store")
+                    val nickname = if (purJson.isNull("nickname")) null else purJson.getString("nickname")
+                    val isDraft = purJson.getBoolean("isDraft")
+                    val invoiceUrl = if (purJson.isNull("invoiceUrl")) null else purJson.getString("invoiceUrl")
+
+                    val mappedAccountId = accountIdMap[backupAccountId] ?: continue
+
+                    val existing = localPurchases.find { it.date == date && it.store.equals(store, ignoreCase = true) && it.accountId == mappedAccountId }
+                    if (existing != null) {
+                        dao.deletePurchaseById(existing.id)
+                    }
+
+                    val newId = dao.insertPurchase(com.ajudaqui.pagueiquanto.model.Purchase(
+                        accountId = mappedAccountId,
+                        date = date,
+                        store = store,
+                        nickname = nickname,
+                        isDraft = isDraft,
+                        invoiceUrl = invoiceUrl
+                    ))
+                    purchaseIdMap[backupId] = newId
+                }
+
+                // 4. Inserir PriceRecords correspondentes
+                for (i in 0 until priceRecordsArray.length()) {
+                    val prJson = priceRecordsArray.getJSONObject(i)
+                    val backupProductId = prJson.getLong("productId")
+                    val backupPurchaseId = prJson.getLong("purchaseId")
+                    val unitPrice = prJson.getDouble("unitPrice")
+                    val quantity = prJson.getDouble("quantity")
+
+                    val mappedProductId = productIdMap[backupProductId] ?: continue
+                    val mappedPurchaseId = purchaseIdMap[backupPurchaseId] ?: continue
+
+                    dao.insertRecord(com.ajudaqui.pagueiquanto.model.PriceRecord(
+                        productId = mappedProductId,
+                        purchaseId = mappedPurchaseId,
+                        unitPrice = unitPrice,
+                        quantity = quantity
+                    ))
+                }
+            }
+
+            if (db != null) {
+                db.withTransaction {
+                    executeMerge()
+                }
+            } else {
+                executeMerge()
             }
             notifyDatabaseChanged()
         }

@@ -104,6 +104,57 @@ class ShoppingRepositoryTest {
         assertTrue(jsonString.contains("\"device_id\":\"user@test.com\""))
     }
 
+    @Test
+    fun testRestoreAndMergeBackup() = runBlocking {
+        // Prepara JSON de backup simulado
+        val backupJson = """
+        {
+            "backup_version": 1,
+            "data": {
+                "accounts": [
+                    { "id": 5, "name": "Mercado", "icon": "🛒" }
+                ],
+                "products": [
+                    { "id": 50, "name": "Arroz", "unit": "kg", "accountId": 5, "brand": "Marca X" }
+                ],
+                "purchases": [
+                    { "id": 500, "accountId": 5, "date": 1719532500000, "store": "Supermercado A", "nickname": "Compra Mensal", "isDraft": false, "invoiceUrl": null }
+                ],
+                "price_records": [
+                    { "id": 5000, "productId": 50, "purchaseId": 500, "unitPrice": 5.50, "quantity": 2.0 }
+                ]
+            }
+        }
+        """.trimIndent()
+
+        // Garante que o banco está vazio inicialmente
+        assertTrue(fakeDao.accounts.isEmpty())
+        assertTrue(fakeDao.products.isEmpty())
+        assertTrue(fakeDao.purchases.isEmpty())
+        assertTrue(fakeDao.priceRecords.isEmpty())
+
+        // Executa a restauração e mesclagem
+        repository.restoreAndMergeBackup(backupJson)
+
+        // Verifica se os dados foram inseridos corretamente no banco/DAO
+        assertEquals(1, fakeDao.accounts.size)
+        assertEquals("Mercado", fakeDao.accounts[0].name)
+        assertEquals("🛒", fakeDao.accounts[0].icon)
+
+        assertEquals(1, fakeDao.products.size)
+        assertEquals("Arroz", fakeDao.products[0].name)
+        assertEquals("kg", fakeDao.products[0].unit)
+        assertEquals("Marca X", fakeDao.products[0].brand)
+
+        assertEquals(1, fakeDao.purchases.size)
+        assertEquals("Supermercado A", fakeDao.purchases[0].store)
+        assertEquals("Compra Mensal", fakeDao.purchases[0].nickname)
+
+        assertEquals(1, fakeDao.priceRecords.size)
+        assertEquals(5.50, fakeDao.priceRecords[0].unitPrice, 0.0)
+        assertEquals(2.0, fakeDao.priceRecords[0].quantity, 0.0)
+    }
+
     // --- CLASSES FAKES PARA MOCK EM TESTES UNITÁRIOS JVM ---
 
     private class FakeShoppingDao : ShoppingDao {
