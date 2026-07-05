@@ -56,11 +56,15 @@ data class AccountState(
     val lastPurchaseDate: String?
         get() = products.flatMap { it.history }.maxByOrNull { it.dateMillis }?.date
 
-    val lastPurchaseTotal: Double 
+    val lastPurchaseTotal: Double
         get() {
             val date = lastPurchaseDate ?: return 0.0
-            return products.sumOf { p -> 
-                p.history.find { it.date == date }?.let { it.unitPrice * it.quantity } ?: 0.0
+            // Soma TODOS os registros da data mais recente (não só o primeiro por produto),
+            // garantindo que itens adicionados posteriormente à compra sejam incluídos no total.
+            return products.sumOf { p ->
+                p.history
+                    .filter { it.date == date }
+                    .sumOf { it.unitPrice * it.quantity }
             }
         }
 }

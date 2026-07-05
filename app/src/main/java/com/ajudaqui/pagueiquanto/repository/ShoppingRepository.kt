@@ -66,7 +66,7 @@ class ShoppingRepository(private val dao: ShoppingDao, private val context: Cont
                     brand = product.brand,
                     history = recordsByProduct[product.id] ?: emptyList()
                 )
-            }
+            }.sortedBy { it.name.lowercase() }
         }
 
         // Reconstrói a lista de AccountState de forma reativa a partir do banco SQLite

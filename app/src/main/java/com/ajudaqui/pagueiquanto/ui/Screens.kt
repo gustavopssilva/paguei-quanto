@@ -46,6 +46,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import kotlinx.coroutines.launch
 import com.ajudaqui.pagueiquanto.PagueiQuantoApplication
+import androidx.compose.ui.platform.LocalContext
 
 // --- COMPONENTES BASE ---
 
@@ -57,7 +58,7 @@ fun formatDate(dateStr: String?): String {
         val date = parser.parse(dateStr)
         formatter.format(date!!)
     } catch (e: Exception) {
-        dateStr ?: "--/--"
+        dateStr
     }
 }
 
@@ -120,6 +121,7 @@ fun PriceVariationBadge(delta: Double?, size: String = "md") {
 // --- TELAS ---
 
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun HomeScreen(
     accounts: List<AccountState>,
     latestPurchase: Pair<AccountState, String>?,
@@ -159,7 +161,7 @@ fun HomeScreen(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                items(accounts) { account -> 
+                items(accounts) { account ->
                     ReminderListCard(
                         account = account, 
                         onClick = { onOpenAccount(account.id) },
@@ -551,14 +553,28 @@ fun ProfileScreen() {
                 }
             }
 
-            Button(
-                onClick = { exportDatabase(context) },
-                modifier = Modifier.fillMaxWidth().height(56.dp),
-                shape = RoundedCornerShape(16.dp)
+            // Rodapé discreto com versão e contato
+            val versionName = remember {
+                try {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                } catch (e: Exception) { "1.0" }
+            }
+            Spacer(Modifier.height(8.dp))
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(Icons.Default.Share, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Exportar Banco de Dados (SQLite)", fontWeight = FontWeight.Bold)
+                Text(
+                    "Paguei Quanto? v$versionName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate500
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "contato@ajudaqui.com.br",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Slate500
+                )
             }
         }
     }

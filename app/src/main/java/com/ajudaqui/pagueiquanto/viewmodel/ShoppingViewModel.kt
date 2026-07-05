@@ -123,7 +123,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
                     )
                 }
 
-                _items.value = draftItems + extraItems
+                _items.value = (draftItems + extraItems).sortedBy { it.productName.lowercase() }
             } else {
                 _items.value = account.products.map { product ->
                     val last = product.lastEntry
@@ -133,7 +133,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
                         lastUnitPrice = last?.unitPrice, lastQuantity = last?.quantity,
                         lastDate = last?.date, requestedQty = last?.quantity ?: 1.0
                     )
-                }
+                }.sortedBy { it.productName.lowercase() }
             }
         }
     }
@@ -234,7 +234,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
             lastUnitPrice = null, lastQuantity = null, lastDate = null,
             requestedQty = 1.0, actualQty = "1", currentPrice = "", isEditing = true
         )
-        _items.value = _items.value + newItem
+        _items.value = (_items.value + newItem).sortedBy { it.productName.lowercase() }
         saveDraftToDb()
     }
 
@@ -259,8 +259,18 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
     fun importFromFiscalInvoice(invoiceUrl: String, onResult: (Boolean, String) -> Unit) {
         viewModelScope.launch {
             try {
+                // Ajusta a URL antes de enviar à biblioteca:
+                // SEFAZ-PE redireciona de HTTP para HTTPS na porta 444, o que falha em redes móveis.
+                // Forçamos o endereço correto diretamente na porta 444.
+                val normalizedUrl = if (invoiceUrl.startsWith("http://nfce.sefaz.pe.gov.br")) {
+                    invoiceUrl.replaceFirst("http://", "https://")
+                        .replaceFirst("nfce.sefaz.pe.gov.br", "nfce.sefaz.pe.gov.br:444")
+                } else {
+                    invoiceUrl
+                }
+
                 val result = withContext(Dispatchers.IO) {
-                    FiscalParseService().parse(UrlInput(invoiceUrl))
+                    FiscalParseService().parse(UrlInput(normalizedUrl))
                 }
 
                 if (!result.isSuccess) {
@@ -307,7 +317,7 @@ class ShoppingViewModel(private val repository: ShoppingRepository) : ViewModel(
                 }
 
                 // Adicionar itens importados à lista existente (preserva itens já lançados manualmente)
-                _items.value = _items.value + importedItems
+                _items.value = (_items.value + importedItems).sortedBy { it.productName.lowercase() }
                 saveDraftToDb()
 
                 val storeName = businessName.ifBlank { "Nota Fiscal" }
