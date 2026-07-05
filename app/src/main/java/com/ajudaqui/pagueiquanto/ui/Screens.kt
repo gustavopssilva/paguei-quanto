@@ -81,7 +81,11 @@ fun PagueiQuantoTopBar(
                     }
                     Spacer(Modifier.width(8.dp))
                 } else {
-                    Spacer(Modifier.width(8.dp))
+                    androidx.compose.foundation.Image(
+                        painter = androidx.compose.ui.res.painterResource(id = com.ajudaqui.pagueiquanto.R.mipmap.ic_launcher_round),
+                        contentDescription = "Logo",
+                        modifier = Modifier.padding(start = 8.dp, end = 12.dp).size(36.dp)
+                    )
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -134,9 +138,9 @@ fun HomeScreen(
     var accountToDelete by remember { mutableStateOf<AccountState?>(null) }
 
     Scaffold(
-        topBar = { PagueiQuantoTopBar(title = "Meus Gastos", subtitle = "Lembretes de compra", actions = { IconButton(onClick = {}) { Icon(Icons.Outlined.Notifications, null) } }) },
+        topBar = { PagueiQuantoTopBar(title = "Paguei quanto?", subtitle = "Lembretes de compra", actions = { IconButton(onClick = {}) { Icon(Icons.Outlined.Notifications, null) } }) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { showAddDialog = true }, containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = RoundedCornerShape(100.dp), icon = { Icon(Icons.Default.Add, null) }, text = { Text("Nova lista", fontWeight = FontWeight.Bold) })
+            ExtendedFloatingActionButton(onClick = { showAddDialog = true }, containerColor = MaterialTheme.colorScheme.tertiary, contentColor = MaterialTheme.colorScheme.onTertiary, shape = RoundedCornerShape(100.dp), icon = { Icon(Icons.Default.Add, null) }, text = { Text("Nova lista", fontWeight = FontWeight.Bold) })
         },
         floatingActionButtonPosition = FabPosition.Center
     ) { padding ->
@@ -149,7 +153,7 @@ fun HomeScreen(
             }
 
             Text(
-                "MINHAS LISTAS", 
+                "Categorias:", 
                 style = MaterialTheme.typography.labelLarge, 
                 fontWeight = FontWeight.Bold, 
                 color = Slate500, 
@@ -559,15 +563,22 @@ fun ProfileScreen() {
                     context.packageManager.getPackageInfo(context.packageName, 0).versionName
                 } catch (e: Exception) { "1.0" }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(16.dp))
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = com.ajudaqui.pagueiquanto.R.mipmap.ic_launcher_round),
+                    contentDescription = "Logo",
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "Paguei Quanto? v$versionName",
                     style = MaterialTheme.typography.labelSmall,
-                    color = Slate500
+                    color = Slate500,
+                    fontWeight = FontWeight.Bold
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(

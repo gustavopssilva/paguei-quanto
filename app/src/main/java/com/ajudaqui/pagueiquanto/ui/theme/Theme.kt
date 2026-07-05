@@ -7,13 +7,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 private val LightColorScheme = lightColorScheme(
-    primary = Emerald600,
+    primary = ClayBlue,
     onPrimary = Color.White,
-    primaryContainer = Emerald600.copy(alpha = 0.1f),
-    onPrimaryContainer = Emerald700,
+    primaryContainer = ClayLightBlue,
+    onPrimaryContainer = ClayBlue,
     
-    secondary = Slate200,
-    onSecondary = Slate800,
+    secondary = ClayGreen,
+    onSecondary = Color.White,
+    
+    tertiary = ClayOrange,
+    onTertiary = Color.White,
     
     background = Slate50,
     onBackground = Slate900,

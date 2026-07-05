@@ -19,3 +19,10 @@ val Emerald700 = Color(0xFF047857)
 
 val Red500 = Color(0xFFEF4444)
 val Red600 = Color(0xFFDC2626)
+
+// Cores inspiradas no ícone de massinha (Option 2)
+val ClayBlue = Color(0xFF3A86F0)        // Azul suave do P
+val ClayGreen = Color(0xFF2ECC71)       // Verde suave do P
+val ClayOrange = Color(0xFFFA5F22)      // Laranja neon do cordão
+val ClayLightBlue = Color(0xFFEFF6FF)   // Container azul claro
+
